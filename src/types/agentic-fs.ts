@@ -94,3 +94,31 @@ export interface IndexingStatusResponse {
   indexing_status: 'pending' | 'processing' | 'indexed' | 'failed';
   indexing_error?: string | null;
 }
+
+// ── Registry Hierarchy Types ──
+// Stored in the _registry tenant under the knowledge namespace.
+// See docs/data-model.md for the full schema reference.
+
+export interface OrgMeta {
+  id: string;
+  name: string;
+  portfolioIds: string[];
+  createdAt: string;
+}
+
+export interface PortfolioMeta {
+  id: string;
+  name: string;
+  orgId: string;
+  projectIds: string[];
+  createdAt: string;
+}
+
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  portfolioId: string;
+  tenant: string;
+  status: 'active' | 'archived';
+  createdAt: string;
+}

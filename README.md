@@ -94,12 +94,15 @@ agility-flow/
 │   │       ├── prompt-assembler.ts#   Prompt builder
 │   │       ├── executor.ts        #   Agent loop
 │   │       ├── orchestrator.ts    #   Task management + delegation
+│   │       ├── fs-paths.ts        #   Namespace constants + path builders
+│   │       ├── fs-init.ts         #   Project/sprint/agent initialization
 │   │       ├── adapters/          #   Model adapters (mock, anthropic)
 │   │       ├── tools/             #   Tool router + handlers
 │   │       └── events/            #   Event bus + SSE
 │   └── types/                     # TypeScript type definitions
 ├── docs/                          # Documentation
-│   └── architecture.md            #   Full architecture reference
+│   ├── architecture.md            #   Full architecture reference
+│   └── data-model.md              #   Agentic FS data model reference
 └── .env.local                     # Environment variables
 ```
 
@@ -139,7 +142,7 @@ A factory pattern selects the adapter based on environment configuration:
 
 ### Agentic Filesystem
 
-An external REST API service (separate repo) that provides tenant-scoped file storage, semantic search, hybrid search, and RAG. It serves as the single source of truth for all persistent runtime data: tasks, events, sprints, artifacts, agent memory, and project knowledge.
+An external REST API service (separate repo) that provides tenant-scoped file storage, semantic search, hybrid search, and RAG. It serves as the single source of truth for all persistent runtime data: tasks, events, sprints, artifacts, agent memory, and project knowledge. Each project maps to its own Agentic FS tenant for search isolation. See [`docs/data-model.md`](docs/data-model.md) for the full directory tree, entity schemas, and naming conventions.
 
 ### Event Bus & SSE
 

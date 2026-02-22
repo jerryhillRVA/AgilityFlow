@@ -37,12 +37,15 @@ Agility Flow is a markdown-driven agentic platform built with Next.js 16 (App Ro
 | `src/lib/agentic/adapters/` | Model adapters: `mock.ts`, `anthropic.ts`, factory in `index.ts` |
 | `src/lib/agentic/tools/` | Tool router, schemas, Agentic FS tool handlers |
 | `src/lib/agentic/events/emitter.ts` | In-process event bus (pub/sub, 200-event buffer) |
+| `src/lib/agentic/fs-paths.ts` | Namespace constants, path builders, base directory lists |
+| `src/lib/agentic/fs-init.ts` | Idempotent initialization for project/sprint/agent/registry |
 | `src/lib/agentic-fs-client.ts` | Full HTTP client for Agentic FS REST API |
 | `src/types/` | Type definitions: `agent.ts`, `task.ts`, `events.ts`, `agentic-fs.ts` |
 | `src/app/api/*/route.ts` | 8 API routes (health, tasks, agents, definitions, events, commands, sprint, ask) |
 | `src/app/*/page.tsx` | 6 pages (dashboard, jobs, agents, sprint, backlog, settings) |
 | `src/components/layout/Sidebar.tsx` | Full navigation structure with all route paths |
 | `docs/architecture.md` | Complete architecture reference with status annotations |
+| `docs/data-model.md` | Agentic FS data model: directory trees, schemas, naming conventions |
 
 ## Running the Project
 
@@ -80,6 +83,9 @@ Agent/skill/template files in `definitions/` use YAML frontmatter parsed by `gra
 
 ### In-Process Delegation
 The orchestrator delegates to sub-agents via the `delegate_to_agent` tool, which calls `executor.execute()` directly — no message queues, no IPC, no external job system. All agents run on the same Node.js process.
+
+### Agentic FS Data Model
+Each project maps to its own Agentic FS tenant (project-per-tenant). A `_registry` tenant holds org/portfolio/project hierarchy. 6 namespaces per project: tasks, sprints, events, artifacts, memory, knowledge. All path construction uses typed builders in `src/lib/agentic/fs-paths.ts`. Initialization functions in `src/lib/agentic/fs-init.ts`. Full reference: `docs/data-model.md`.
 
 ### SSE for Real-Time Events
 The `/api/events` route uses Server-Sent Events (not WebSocket) to stream agent activity to the browser. The `ActivityFeed` component subscribes via `EventSource`. Events are buffered in the `EventBus` (last 200) so late-joining clients get recent history.

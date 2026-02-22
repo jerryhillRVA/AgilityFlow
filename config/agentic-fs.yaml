@@ -1,9 +1,4 @@
 base_url: http://localhost:8000
 tenant: default
-namespaces:
-  tasks: tasks
-  sprints: sprints
-  events: events
-  artifacts: artifacts
-  memory: memory
-  knowledge: knowledge
+# Namespace definitions and path conventions are in src/lib/agentic/fs-paths.ts
+# See docs/data-model.md for the full data model reference

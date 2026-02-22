@@ -8,6 +8,7 @@ import type { Task, TaskStatus, TaskPriority } from '@/types/task';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
+import { NS, paths } from './fs-paths';
 import { v4 as uuid } from 'uuid';
 
 export class Orchestrator {
@@ -124,7 +125,7 @@ export class Orchestrator {
       const result = await fs.uploadFile(
         JSON.stringify(task, null, 2),
         `${task.id}.json`,
-        { namespace: 'tasks', path: task.status, tags: ['task', task.priority] }
+        { namespace: NS.TASKS, path: paths.tasks.dir(task.status), tags: ['task', task.priority] }
       );
       task.fileId = result.file_id;
     } catch {

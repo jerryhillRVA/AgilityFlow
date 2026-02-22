@@ -266,37 +266,25 @@ When a task arrives at a node, the orchestrator runs on **that node** and delega
 | GET | `/v1/{tenant}/dirs/{path}` | List directory |
 | DELETE | `/v1/{tenant}/dirs/{path}` | Delete directory |
 
-### Namespace Layout
+### Data Model & Namespace Layout
 
-```
-tenant: "default"
+> **Full reference:** [`docs/data-model.md`](data-model.md) — directory trees, entity schemas, naming conventions, initialization.
+> **Code source of truth:** `src/lib/agentic/fs-paths.ts` — typed namespace constants and path builders.
 
-namespace: "sprints"               # agile data — source of truth for the board
-  sprint-24/
-    sprint-meta.json               # goals, dates, config
-    tasks/
-      STORY-002.json               # {status, assignee, points, history, ...}
-      BUG-88.json
-    proposals/
-      wip-limit-warning.json       # orchestrator suggestions
+**Scoping model:** Each project maps to its own Agentic FS tenant (project-per-tenant). A special `_registry` tenant holds org/portfolio/project hierarchy metadata. This keeps search/RAG results scoped to a single project.
 
-namespace: "events"                # agent activity log
-  2026-02-22/
-    evt-001.json                   # {type, agent, task_id, timestamp, data}
+**6 namespaces per project tenant:**
 
-namespace: "artifacts"             # work products
-  pull-requests/
-  code/
-  docs/
+| Namespace | Purpose |
+|-----------|---------|
+| `tasks` | Work items organized by status (backlog, todo, in-progress, review, done, blocked) |
+| `sprints` | Sprint metadata, sprint-scoped tasks, orchestrator proposals |
+| `events` | Timestamped agent activity log |
+| `artifacts` | Work products: PRs, code, docs, reviews, specs |
+| `memory` | Per-agent persistent memory and decision history |
+| `knowledge` | Shared project knowledge: architecture, conventions, charter, tech stack |
 
-namespace: "memory"                # persistent agent memory
-  agents/backend-developer/
-  agents/orchestrator/
-
-namespace: "knowledge"             # shared project knowledge
-  architecture/
-  conventions/
-```
+**Initialization:** `src/lib/agentic/fs-init.ts` provides idempotent functions to create the base directory skeleton for new projects, sprints, agent memory, and the registry tenant.
 
 ### What We Store
 
@@ -306,6 +294,7 @@ namespace: "knowledge"             # shared project knowledge
 - Agent memory (context, decisions, history)
 - Project knowledge base (charter, conventions, tech stack)
 - Orchestrator proposals (suggestions with confidence scores)
+- Org/portfolio/project hierarchy (in `_registry` tenant)
 
 ---
 
