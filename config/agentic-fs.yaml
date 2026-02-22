@@ -1,0 +1,9 @@
+base_url: http://localhost:8000
+tenant: default
+namespaces:
+  tasks: tasks
+  sprints: sprints
+  events: events
+  artifacts: artifacts
+  memory: memory
+  knowledge: knowledge

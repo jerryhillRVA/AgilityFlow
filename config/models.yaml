@@ -1,0 +1,14 @@
+default_provider: anthropic
+tiers:
+  fast:
+    anthropic: claude-haiku-4-5-20251001
+    openai: gpt-4o-mini
+    google: gemini-2.0-flash
+  balanced:
+    anthropic: claude-sonnet-4-5-20250929
+    openai: gpt-4o
+    google: gemini-2.5-pro
+  advanced:
+    anthropic: claude-opus-4-6
+    openai: o3
+    google: gemini-2.5-pro

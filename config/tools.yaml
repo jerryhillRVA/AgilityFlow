@@ -1,0 +1,15 @@
+builtin:
+  - name: agentic_fs_read
+    description: Read a file from Agentic FS
+  - name: agentic_fs_write
+    description: Write/upload a file to Agentic FS
+  - name: agentic_fs_search
+    description: Search files in Agentic FS using hybrid search
+  - name: agentic_fs_list
+    description: List directory contents in Agentic FS
+  - name: delegate_to_agent
+    description: Delegate a subtask to a specialist agent
+  - name: create_subtask
+    description: Create a subtask under the current task
+  - name: update_task_status
+    description: Update the status of a task
