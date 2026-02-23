@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, description, priority } = body;
+    const { title, description, priority, mode } = body;
 
     if (!title || !description) {
       return NextResponse.json(
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const orchestrator = await getOrchestrator();
-    const task = await orchestrator.submitTask(title, description, priority);
+    const task = await orchestrator.submitTask(title, description, priority, mode);
 
     return NextResponse.json(task, { status: 201 });
   } catch (error) {

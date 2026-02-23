@@ -52,4 +52,25 @@ export function registerAgenticFSTools(router: ToolRouter): void {
       return { error: `List failed: ${error}` };
     }
   });
+
+  router.register('agentic_fs_ask', async (input) => {
+    try {
+      return await fs.ask(input.query as string, {
+        k: (input.k as number) || 5,
+        namespace: input.namespace as string | undefined,
+        systemPrompt: input.system_prompt as string | undefined,
+      });
+    } catch (error) {
+      return { error: `Ask failed: ${error}` };
+    }
+  });
+
+  router.register('agentic_fs_batch_read', async (input) => {
+    const fileIds = input.file_ids as string[];
+    try {
+      return await fs.batchRetrieve(fileIds);
+    } catch (error) {
+      return { error: `Batch read failed: ${error}` };
+    }
+  });
 }

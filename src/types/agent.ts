@@ -11,6 +11,7 @@ export interface AgentDefinition {
   tools: string[];
   systemPrompt: string;
   constraints?: string[];
+  maxIterations?: number;
   delegatesTo?: string[];
   memory?: {
     namespace: string;

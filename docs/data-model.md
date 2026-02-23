@@ -61,6 +61,8 @@ Namespace names are defined as constants in `src/lib/agentic/fs-paths.ts` (`NS.T
 {tenant}/
 │
 ├── tasks/                              # NS.TASKS
+│   ├── pending/                        # subtask-only status
+│   │   └── {taskId}.json
 │   ├── backlog/
 │   │   └── {taskId}.json
 │   ├── todo/
@@ -86,17 +88,16 @@ Namespace names are defined as constants in `src/lib/agentic/fs-paths.ts` (`NS.T
 │   └── {YYYY-MM-DD}/
 │       └── {eventId}.json
 │
-├── artifacts/                          # NS.ARTIFACTS
-│   ├── pull-requests/
-│   │   └── {filename}
-│   ├── code/
-│   │   └── {filename}
-│   ├── docs/
-│   │   └── {filename}
-│   ├── reviews/
-│   │   └── {filename}
-│   └── specs/
-│       └── {filename}
+├── artifacts/                          # NS.ARTIFACTS — task-scoped
+│   └── {taskId}/                       # one dir per task/subtask
+│       ├── requirements/
+│       │   └── {filename}
+│       ├── implementation/
+│       │   └── {filename}
+│       ├── verification/
+│       │   └── {filename}
+│       └── other/
+│           └── {filename}
 │
 ├── memory/                             # NS.MEMORY
 │   └── agents/
@@ -144,7 +145,7 @@ Stored at: `tasks/{status}/{taskId}.json`
   "id": "uuid",
   "title": "string",
   "description": "string",
-  "status": "backlog | todo | in-progress | review | done | blocked",
+  "status": "pending | backlog | todo | in-progress | review | done | blocked",
   "priority": "critical | high | medium | low",
   "assignedAgent": "string?",
   "parentTaskId": "string?",
@@ -295,7 +296,9 @@ All path construction in application code uses the typed builders in `src/lib/ag
 | `paths.sprints.taskFile(sprintId, taskId)` | Sprint task path | `"sprint-24/tasks/abc-123.json"` |
 | `paths.sprints.proposals(sprintId)` | Proposals directory | `"sprint-24/proposals"` |
 | `paths.events.file(date, eventId)` | Event file path | `"2026-02-22/evt-001.json"` |
-| `paths.artifacts.file(type, filename)` | Artifact file path | `"pull-requests/pr-42.md"` |
+| `paths.artifacts.taskDir(taskId)` | Task artifact root | `"abc-123"` |
+| `paths.artifacts.taskCategoryDir(taskId, cat)` | Category dir | `"abc-123/requirements"` |
+| `paths.artifacts.file(taskId, cat, file)` | Artifact file path | `"abc-123/requirements/criteria.md"` |
 | `paths.memory.agentDir(name)` | Agent memory directory | `"agents/orchestrator"` |
 | `paths.memory.agentFile(name, file)` | Agent memory file | `"agents/orchestrator/decisions.md"` |
 | `paths.knowledge.file(category, file)` | Knowledge file path | `"conventions/coding-standards.md"` |

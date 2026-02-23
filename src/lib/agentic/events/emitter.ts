@@ -29,4 +29,7 @@ class EventBus {
   }
 }
 
-export const eventBus = new EventBus();
+// Use globalThis to ensure a single instance survives Turbopack module isolation in dev mode
+const globalKey = '__agilityflow_eventBus__' as const;
+export const eventBus: EventBus = (globalThis as Record<string, unknown>)[globalKey] as EventBus
+  ?? ((globalThis as Record<string, unknown>)[globalKey] = new EventBus());

@@ -46,8 +46,12 @@ export const paths = {
   },
 
   artifacts: {
-    dir: (type: string): string => type,
-    file: (type: string, filename: string): string => `${type}/${filename}`,
+    /** Task-scoped artifact directory: artifacts/{taskId} */
+    taskDir: (taskId: string): string => taskId,
+    /** Task-scoped artifact category directory: artifacts/{taskId}/{category} */
+    taskCategoryDir: (taskId: string, category: string): string => `${taskId}/${category}`,
+    /** Task-scoped artifact file: artifacts/{taskId}/{category}/{filename} */
+    file: (taskId: string, category: string, filename: string): string => `${taskId}/${category}/${filename}`,
   },
 
   memory: {
@@ -72,6 +76,7 @@ export const paths = {
 
 export const PROJECT_BASE_DIRS: { namespace: Namespace; path: string }[] = [
   // Task status directories
+  { namespace: NS.TASKS, path: 'pending' },
   { namespace: NS.TASKS, path: 'backlog' },
   { namespace: NS.TASKS, path: 'todo' },
   { namespace: NS.TASKS, path: 'in-progress' },
@@ -79,12 +84,7 @@ export const PROJECT_BASE_DIRS: { namespace: Namespace; path: string }[] = [
   { namespace: NS.TASKS, path: 'done' },
   { namespace: NS.TASKS, path: 'blocked' },
 
-  // Artifact type directories
-  { namespace: NS.ARTIFACTS, path: 'pull-requests' },
-  { namespace: NS.ARTIFACTS, path: 'code' },
-  { namespace: NS.ARTIFACTS, path: 'docs' },
-  { namespace: NS.ARTIFACTS, path: 'reviews' },
-  { namespace: NS.ARTIFACTS, path: 'specs' },
+  // Artifact directories are created on-demand per task (artifacts/{taskId}/{category}/)
 
   // Agent memory root
   { namespace: NS.MEMORY, path: 'agents' },

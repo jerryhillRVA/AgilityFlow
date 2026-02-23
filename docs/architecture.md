@@ -306,7 +306,7 @@ When a task arrives at a node, the orchestrator runs on **that node** and delega
 
 | Type | Directory | Count (MVP) | Count (Vision) | Status |
 |------|-----------|-------------|-----------------|--------|
-| Agents | `definitions/agents/` | 5 | 8+ | ⏳ |
+| Agents | `definitions/agents/` | 6 | 8+ | ⏳ |
 | Commands | `definitions/commands/` | 0 | 8+ | 🔲 |
 | Skills | `definitions/skills/` | 2 | 8+ | ⏳ |
 | Templates | `definitions/templates/` | 2 | 7+ | ⏳ |
@@ -402,8 +402,8 @@ memory:
 - Update memory with decisions for future tasks
 ```
 
-**Implemented agents:** orchestrator, backend-developer, frontend-developer, code-reviewer, technical-writer
-**Planned agents:** qa-engineer, devops-agent, product-owner-agent, architect-agent, docs-agent
+**Implemented agents:** orchestrator, backend-developer, frontend-developer, code-reviewer, technical-writer, qa-analyst
+**Planned agents:** devops-agent, product-owner-agent, architect-agent, docs-agent
 
 **Note:** Template variable interpolation (`{{memory:...}}`, `{{context:agentic_fs_results}}`) and `context.from_agentic_fs` RAG resolution are not yet implemented. Agent memory auto-load/save requires the Agentic FS service.
 
@@ -570,6 +570,8 @@ All agent activity is emitted as typed events through an in-process event bus.
 - `agent:completed` — Agent finished a task
 - `agent:error` — Agent encountered an error
 - `orchestrator:delegated` — Orchestrator assigned work to a sub-agent
+- `task:transition_action` — Transition-triggered agent action started/completed
+- `task:subtask_cascade` — Subtasks cascaded to done when parent moved to done
 
 **Dual-write pattern** (vision):
 1. Persist to Agentic FS `events/` namespace (source of truth)
@@ -600,7 +602,8 @@ agility-flow/
 │   │   ├── backend-developer.md
 │   │   ├── frontend-developer.md
 │   │   ├── code-reviewer.md
-│   │   └── technical-writer.md
+│   │   ├── technical-writer.md
+│   │   └── qa-analyst.md
 │   ├── skills/                           # ✅ 2 skills
 │   │   ├── code-review.md
 │   │   └── task-decomposition.md
@@ -633,7 +636,9 @@ agility-flow/
 │   │       ├── events/route.ts           # SSE stream
 │   │       ├── commands/route.ts
 │   │       ├── sprint/route.ts
-│   │       └── ask/route.ts              # RAG query
+│   │       ├── ask/route.ts              # RAG query
+│   │       ├── tasks/[taskId]/status/route.ts  # task status transitions
+│   │       └── artifacts/[fileId]/route.ts     # artifact content download
 │   │
 │   ├── components/                       # ✅ React components
 │   │   ├── layout/
@@ -645,8 +650,11 @@ agility-flow/
 │   │   │   ├── ProposalsPanel.tsx        # active proposals
 │   │   │   └── TaskSubmitForm.tsx        # task form
 │   │   └── board/
-│   │       ├── SprintBoard.tsx           # kanban columns
-│   │       └── TaskCard.tsx              # task card
+│   │       ├── SprintBoard.tsx           # kanban columns + swimlanes
+│   │       ├── TaskCard.tsx              # task card (parent + subtask variants)
+│   │       ├── TaskDetailPanel.tsx       # slide-over detail panel
+│   │       ├── StatusTransitionButtons.tsx # transition buttons + subtask gate
+│   │       └── ArtifactViewerModal.tsx   # artifact content viewer
 │   │
 │   ├── lib/
 │   │   ├── agentic-fs-client.ts          # ✅ full Agentic FS HTTP client
@@ -772,3 +780,80 @@ The core agentic loop is fully functional:
 | Shared components (~8 primitives) | React/TSX | ~800 |
 | **Total code** | | **~10,000** |
 | **Total definitions** | | **~3,000-8,000** |
+
+---
+
+## 11. Workflows
+
+### Task Lifecycle Workflow ✅
+
+Tasks follow a defined lifecycle through the Sprint Board. Each status transition can trigger automated agent actions.
+
+```
+┌──────────┐    ┌──────────┐    ┌─────────────┐    ┌──────────┐    ┌──────────┐
+│ Backlog  │───►│  To Do   │───►│ In Progress │───►│  Review  │───►│   Done   │
+│          │    │          │    │             │    │          │    │          │
+│ Plan     │    │ Docs &   │    │ Implement   │    │ Subtask  │    │ Cascade  │
+│ created  │    │ criteria │    │ & delegate  │    │ gate     │    │ subtasks │
+└──────────┘    └──────────┘    └─────────────┘    └──────────┘    └──────────┘
+                                       │
+                                ┌──────┴──────┐
+                                │  Blocked    │
+                                └─────────────┘
+```
+
+### Status Transitions & Triggered Actions
+
+| Transition | Trigger | Action | Agent |
+|------------|---------|--------|-------|
+| **Task Created → Backlog** | `POST /api/tasks` | Orchestrator runs in plan mode: decomposes task into subtasks with `create_subtask` (assigns agents via `assigned_agent`). Task stays in Backlog with subtasks and plan summary visible. | Orchestrator |
+| **Backlog → To Do** | Manual (UI button) | Runs documentation generation: technical-writer agent creates acceptance criteria and requirements artifacts with `category: 'requirements'`. | Technical Writer |
+| **To Do → In Progress** | Manual (UI button) | Runs implementation: moves subtasks to in-progress, delegates each to its `assignedAgent`. Developer agents create `category: 'implementation'` artifacts. QA creates `category: 'verification'` artifacts. Subtasks complete to Review. | Task-specific agents |
+| **In Progress → Review** | Manual (UI button) | **Subtask gate**: blocked unless ALL subtasks are in `review` or `done`. Returns 400 with list of blocking subtasks if not ready. | None (validation only) |
+| **Review → Done** | Manual (UI button) | **Cascade**: all subtasks in `review` are automatically moved to `done`. Events emitted for each cascaded subtask. | None (automated) |
+| **Any → Blocked** | Manual (UI button) | No automated action. | None |
+
+### Task-Specific Agent Assignment
+
+Not all agents run for every task. The orchestrator analyzes the task during plan mode and assigns only relevant agents:
+
+| Task Type | Agents Assigned |
+|-----------|----------------|
+| Testing task | `qa-analyst`, `technical-writer` |
+| Frontend-only | `frontend-developer`, `technical-writer` |
+| Backend-only | `backend-developer`, `technical-writer` |
+| Full-stack | `backend-developer`, `frontend-developer`, `qa-analyst`, `technical-writer` |
+| All tasks | `code-reviewer` (for review phase) |
+
+### Artifact Categories
+
+Artifacts are organized by category on task detail views:
+
+| Category | Created By | Examples |
+|----------|-----------|----------|
+| `requirements` | Technical Writer | acceptance-criteria.md, requirements-summary.md |
+| `implementation` | Backend/Frontend Developer | api-implementation.md, ui-implementation.md |
+| `verification` | QA Analyst, Code Reviewer | test-cases.md, code-review-report.md |
+| `other` | Any agent | Miscellaneous artifacts |
+
+### Swimlane UI
+
+The Sprint Board uses inline per-column swimlanes to display parent/subtask relationships:
+
+- **Parent tasks** render at the top level in each column
+- **Subtask count badge** shows how many subtasks a parent has, with a toggle chevron
+- **Expanded view** renders subtasks indented below their parent, only showing subtasks matching that column's status
+- **Subtask cards** are compact with a left accent border, showing assigned agent prominently
+- Subtasks in different statuses appear in their respective columns independently
+
+### Persistence
+
+All task state is persisted to the Agentic FS:
+
+| Data | Namespace | Path Pattern |
+|------|-----------|-------------|
+| Task records | `tasks` | `tasks/{status}/{taskId}.json` |
+| Artifacts | `artifacts` | `artifacts/{path}/{filename}` |
+| Events | `events` | `events/{timestamp}.json` |
+
+Tasks are persisted on creation and updated on each status transition (file moved between status directories).

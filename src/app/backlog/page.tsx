@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Paperclip } from 'lucide-react';
 import type { Task } from '@/types/task';
 
 export default function BacklogPage() {
@@ -38,7 +39,17 @@ export default function BacklogPage() {
             {tasks.map(task => (
               <tr key={task.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td className="p-3 font-mono text-[10px]" style={{ color: 'var(--text-muted)' }}>{task.id.slice(0, 8)}</td>
-                <td className="p-3" style={{ color: 'var(--text-primary)' }}>{task.title}</td>
+                <td className="p-3" style={{ color: 'var(--text-primary)' }}>
+                  <div className="flex items-center gap-1.5">
+                    <span>{task.title}</span>
+                    {task.artifacts && task.artifacts.length > 0 && (
+                      <span className="flex items-center gap-0.5 text-[9px] shrink-0" style={{ color: 'var(--accent)' }}>
+                        <Paperclip size={9} />
+                        {task.artifacts.length}
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="p-3">
                   <span className="px-1.5 py-0.5 rounded text-[9px]"
                     style={{

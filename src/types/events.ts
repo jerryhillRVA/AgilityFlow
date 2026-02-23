@@ -10,6 +10,10 @@ export type EventType =
   | 'agent:error'
   | 'orchestrator:delegated'
   | 'orchestrator:decomposed'
+  | 'orchestrator:plan_ready'
+  | 'task:artifact'
+  | 'task:transition_action'
+  | 'task:subtask_cascade'
   | 'system:info'
   | 'system:error';
 

@@ -45,6 +45,7 @@ export class CapabilityRegistry {
         skills: (fm.skills as string[]) || [],
         tools: (fm.tools as string[]) || [],
         systemPrompt: body,
+        maxIterations: fm.maxIterations as number | undefined,
         constraints: (fm.constraints as string[]) || [],
         delegatesTo: (fm.delegatesTo as string[]) || [],
         memory: fm.memory as AgentDefinition['memory'],
@@ -117,7 +118,8 @@ export class CapabilityRegistry {
         }
       }
       return results;
-    } catch {
+    } catch (error) {
+      console.error(`[registry] Failed to read markdown from ${dir}:`, String(error));
       return [];
     }
   }
@@ -132,11 +134,14 @@ export class CapabilityRegistry {
   listTemplates(): TemplateDefinition[] { return Array.from(this.templates.values()); }
 }
 
-let registry: CapabilityRegistry | null = null;
+// Use globalThis to ensure a single instance survives Turbopack module isolation in dev mode
+const registryKey = '__agilityflow_registry__' as const;
 export async function getRegistry(): Promise<CapabilityRegistry> {
-  if (!registry) {
+  let registry = (globalThis as Record<string, unknown>)[registryKey] as CapabilityRegistry | undefined;
+  if (!registry || registry.agents.size === 0) {
     registry = new CapabilityRegistry();
     await registry.load();
+    (globalThis as Record<string, unknown>)[registryKey] = registry;
   }
   return registry;
 }

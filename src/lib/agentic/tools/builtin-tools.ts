@@ -14,7 +14,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
   },
   agentic_fs_write: {
     name: 'agentic_fs_write',
-    description: 'Write or upload a file to the project filesystem',
+    description: 'Write or upload a file to the project filesystem. You must specify a category for every artifact.',
     input_schema: {
       type: 'object',
       properties: {
@@ -23,8 +23,9 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
         namespace: { type: 'string', description: 'Namespace (e.g. artifacts, tasks)' },
         path: { type: 'string', description: 'Path within the namespace' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Tags for categorization' },
+        category: { type: 'string', enum: ['requirements', 'implementation', 'verification', 'other'], description: 'Artifact category — REQUIRED. Use requirements for specs/criteria, implementation for code, verification for tests/reviews.' },
       },
-      required: ['filename', 'content'],
+      required: ['filename', 'content', 'category'],
     },
   },
   agentic_fs_search: {
@@ -52,6 +53,31 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
       required: ['path'],
     },
   },
+  agentic_fs_ask: {
+    name: 'agentic_fs_ask',
+    description: 'Ask a question about project files using RAG. Returns a synthesized answer with cited source files. More efficient than searching then reading files separately — use this as your primary context-gathering tool.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'The question to ask about project files' },
+        namespace: { type: 'string', description: 'Limit search to a namespace (e.g. artifacts, tasks)' },
+        k: { type: 'number', description: 'Number of source files to include (default 5)' },
+        system_prompt: { type: 'string', description: 'Optional guidance for the answer style' },
+      },
+      required: ['query'],
+    },
+  },
+  agentic_fs_batch_read: {
+    name: 'agentic_fs_batch_read',
+    description: 'Read multiple files at once by their file IDs. More efficient than reading files one at a time when you have several file IDs from a search.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        file_ids: { type: 'array', items: { type: 'string' }, description: 'Array of file IDs to read' },
+      },
+      required: ['file_ids'],
+    },
+  },
   delegate_to_agent: {
     name: 'delegate_to_agent',
     description: 'Delegate a subtask to a specialist agent for execution',
@@ -68,13 +94,14 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
   },
   create_subtask: {
     name: 'create_subtask',
-    description: 'Create a subtask under the current task',
+    description: 'Create a subtask under the current task. In plan mode, use assigned_agent to indicate which specialist should handle it.',
     input_schema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Subtask title' },
         description: { type: 'string', description: 'Subtask description' },
         priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+        assigned_agent: { type: 'string', description: 'Agent ID to assign (e.g. backend-developer, frontend-developer, code-reviewer, technical-writer)' },
       },
       required: ['title', 'description'],
     },
@@ -86,7 +113,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
       type: 'object',
       properties: {
         task_id: { type: 'string', description: 'Task ID to update' },
-        status: { type: 'string', enum: ['backlog', 'todo', 'in-progress', 'review', 'done', 'blocked'] },
+        status: { type: 'string', enum: ['backlog', 'todo', 'in-progress', 'review', 'done', 'blocked', 'pending'] },
       },
       required: ['task_id', 'status'],
     },

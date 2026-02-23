@@ -7,6 +7,7 @@ export interface AssembledPrompt {
   systemPrompt: string;
   userMessage: string;
   tools: ToolSchema[];
+  maxIterations?: number;
 }
 
 export class PromptAssembler {
@@ -32,14 +33,17 @@ export class PromptAssembler {
       systemParts.push(`\n---\n${contextBody}`);
     }
 
-    // 4. Build user message from task
+    // 4. Append completion instruction (prevents agents from looping)
+    systemParts.push(`\n---\n## Completion\nOnce you have finished your task and written all required artifacts, respond with a brief text summary of what you accomplished. Do NOT call any more tools after your work is complete. Do NOT rewrite or revise artifacts you have already written — write each artifact exactly once.`);
+
+    // 5. Build user message from task
     let userMessage = `## Task: ${task.title}\n\n${task.description}`;
     if (task.priority) userMessage += `\n\nPriority: ${task.priority}`;
     if (additionalContext) userMessage += `\n\n## Additional Context\n\n${additionalContext}`;
 
-    // 5. Resolve tool schemas
+    // 6. Resolve tool schemas
     const tools = getToolSchemas(agent.tools);
 
-    return { systemPrompt: systemParts.join('\n'), userMessage, tools };
+    return { systemPrompt: systemParts.join('\n'), userMessage, tools, maxIterations: agent.maxIterations };
   }
 }
