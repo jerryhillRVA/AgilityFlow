@@ -501,7 +501,9 @@ tiers:
 **Implemented adapters:** MockAdapter (for testing), AnthropicAdapter (for production)
 **Planned adapters:** OpenAI, Google, Grok
 
-The adapter factory (`src/lib/agentic/adapters/index.ts`) auto-selects: if `ANTHROPIC_API_KEY` is set, uses AnthropicAdapter; otherwise MockAdapter.
+The adapter factory (`src/lib/agentic/adapters/index.ts`) uses the `MODEL_ADAPTER` environment variable: when `MODEL_ADAPTER=anthropic`, uses AnthropicAdapter; when `MODEL_ADAPTER=mock` or unset, uses MockAdapter.
+
+> **Token optimization:** See [Token_Context_Optimization.md](Token_Context_Optimization.md) for the ReWOO execution pattern, sequential batch wave architecture, prompt caching, and cost projections.
 
 ---
 
@@ -761,7 +763,7 @@ The core agentic loop is fully functional:
 - Chrome UI regression tests pass on all 6 pages
 
 **To activate live mode:**
-1. Set `ANTHROPIC_API_KEY` in `.env.local` — adapter factory auto-switches to Anthropic
+1. Set `MODEL_ADAPTER=anthropic` and `ANTHROPIC_API_KEY` in `.env.local` — adapter factory uses AnthropicAdapter
 2. Start Agentic FS at `localhost:8000` — persistence, RAG, and search activate
 
 ### Estimated Total Code (Full Vision)

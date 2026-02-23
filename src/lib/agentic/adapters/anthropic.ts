@@ -54,8 +54,14 @@ export class AnthropicAdapter implements ModelAdapter {
 
     const params: Anthropic.MessageCreateParams = {
       model,
-      max_tokens: request.maxTokens || 8192,
-      system: request.systemPrompt,
+      max_tokens: request.maxTokens || 21000,
+      system: [
+        {
+          type: 'text' as const,
+          text: request.systemPrompt,
+          cache_control: { type: 'ephemeral' as const },
+        },
+      ],
       messages: request.messages.map(m => ({
         role: m.role as 'user' | 'assistant',
         content: m.content as Anthropic.MessageParam['content'],
@@ -95,6 +101,8 @@ export class AnthropicAdapter implements ModelAdapter {
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
+        cacheReadInputTokens: (response.usage as unknown as Record<string, number>).cache_read_input_tokens || 0,
+        cacheCreationInputTokens: (response.usage as unknown as Record<string, number>).cache_creation_input_tokens || 0,
       },
     };
   }

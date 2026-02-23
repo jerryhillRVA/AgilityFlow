@@ -26,6 +26,10 @@ export interface Task {
   assignedAgent?: string;
   parentTaskId?: string;
   subtaskIds: string[];
+  /** Wave number for sequential execution (1=first, 2=second, etc.) — set by orchestrator */
+  executionOrder?: number;
+  /** Subtask IDs that must complete before this one runs */
+  dependsOn?: string[];
   sprintId?: string;
   createdAt: string;
   updatedAt: string;
@@ -43,6 +47,8 @@ export interface Task {
     totalOutputTokens: number;
     iterations: number;
     iterationDetails?: IterationRecord[];
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
   };
   /** Error message if the agent failed */
   errorMessage?: string;
@@ -55,6 +61,14 @@ export interface TaskArtifact {
   path: string;
   createdAt: string;
   category: ArtifactCategory;
+}
+
+export interface WaveExecution {
+  waveNumber: number;
+  subtaskIds: string[];
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface Sprint {

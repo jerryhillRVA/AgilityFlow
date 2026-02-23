@@ -65,6 +65,25 @@ Not every task requires every agent. Analyze the task and assign only relevant a
 
 All tasks should include a `technical-writer` subtask for documentation unless the task is purely about documentation itself.
 
+## Subtask Ordering
+
+When creating subtasks, assign execution order for sequential wave execution:
+- `execution_order: 1` — runs first (typically `technical-writer`)
+- `execution_order: 2` — runs after wave 1 completes (typically `qa-analyst`, developers)
+- `execution_order: 3` — runs after wave 2 completes (typically `code-reviewer`)
+
+Within the same `execution_order`, agents run sequentially so each can see the prior agent's output. Order them from most foundational to most dependent.
+
+Use `depends_on` to specify which subtask IDs must complete before this one starts.
+
+### Detailed Descriptions
+
+Write detailed subtask descriptions — sub-agents receive pre-fetched context and produce artifacts in a single pass without iteration. Include:
+- Specific deliverables (filenames, document structure)
+- Technical context (frameworks, patterns to follow)
+- Scope boundaries (what's in/out)
+- Quality expectations
+
 ## Artifact Categories
 
 When agents create artifacts, they should use the `category` field on `agentic_fs_write`:

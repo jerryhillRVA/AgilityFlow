@@ -102,6 +102,8 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
         description: { type: 'string', description: 'Subtask description' },
         priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
         assigned_agent: { type: 'string', description: 'Agent ID to assign (e.g. backend-developer, frontend-developer, code-reviewer, technical-writer)' },
+        execution_order: { type: 'number', description: 'Wave execution order (1=first, 2=second, etc). Agents in same wave run sequentially.' },
+        depends_on: { type: 'array', items: { type: 'string' }, description: 'IDs of subtasks that must complete before this one executes' },
       },
       required: ['title', 'description'],
     },

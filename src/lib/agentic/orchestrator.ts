@@ -1,5 +1,6 @@
 import { AgentExecutor } from './executor';
 import { PromptAssembler } from './prompt-assembler';
+import { WaveExecutor } from './wave-executor';
 import { createAdapter } from './adapters';
 import { ToolRouter } from './tools/tool-router';
 import { registerAgenticFSTools } from './tools/agentic-fs-tool';
@@ -10,6 +11,11 @@ import { createEvent } from './events/types';
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NS, paths } from './fs-paths';
 import { v4 as uuid } from 'uuid';
+
+/** All task status directories in the Agentic FS */
+const ALL_TASK_STATUSES: TaskStatus[] = [
+  'pending', 'backlog', 'todo', 'in-progress', 'review', 'done', 'blocked',
+];
 
 /** Maps agent roles to artifact categories */
 const AGENT_CATEGORY_MAP: Record<string, ArtifactCategory> = {
@@ -57,6 +63,10 @@ export class Orchestrator {
     this.registerOrchestrationTools(this.assembler, adapter);
 
     this.executor = new AgentExecutor(this.assembler, adapter, this.toolRouter);
+
+    // Hydrate in-memory task cache from Agentic FS
+    await this.loadTasksFromFS();
+
     this.initialized = true;
 
     eventBus.emit(createEvent(
@@ -119,6 +129,8 @@ export class Orchestrator {
         priority: (input.priority as TaskPriority) || 'medium',
         assignedAgent: input.assigned_agent as string | undefined,
         parentTaskId: this.currentParentTaskId || undefined,
+        executionOrder: input.execution_order as number | undefined,
+        dependsOn: input.depends_on as string[] | undefined,
       });
       // Link subtask to parent
       if (this.currentParentTaskId) {
@@ -356,6 +368,82 @@ export class Orchestrator {
     }
   }
 
+  /** Hydrate in-memory task cache from Agentic FS on startup */
+  private async loadTasksFromFS(): Promise<void> {
+    try {
+      const fs = getAgenticFSClient();
+
+      // List all status directories in parallel
+      const dirResults = await Promise.allSettled(
+        ALL_TASK_STATUSES.map(status =>
+          fs.listDirectory(paths.tasks.dir(status), NS.TASKS)
+            .then(result => ({ status, entries: result.entries }))
+        )
+      );
+
+      // Collect file IDs from successful listings
+      const fileIds: string[] = [];
+      for (const result of dirResults) {
+        if (result.status === 'fulfilled') {
+          for (const entry of result.value.entries) {
+            if (entry.type === 'file' && entry.file_id) {
+              fileIds.push(entry.file_id);
+            }
+          }
+        }
+      }
+
+      if (fileIds.length === 0) return;
+
+      // Batch retrieve in chunks of 50
+      const BATCH_SIZE = 50;
+      let loaded = 0;
+      let errors = 0;
+
+      for (let i = 0; i < fileIds.length; i += BATCH_SIZE) {
+        const chunk = fileIds.slice(i, i + BATCH_SIZE);
+        try {
+          const batch = await fs.batchRetrieve(chunk, { includeContent: true });
+          for (const file of batch.files) {
+            try {
+              const taskData: Task = typeof file.content === 'string'
+                ? JSON.parse(file.content)
+                : file.content as unknown as Task;
+
+              if (!taskData.id || !taskData.title || !taskData.status) {
+                errors++;
+                continue;
+              }
+
+              // Ensure fileId is set from the FS response
+              taskData.fileId = file.file_id;
+              // Defaults for fields that may be missing in old data
+              if (!taskData.subtaskIds) taskData.subtaskIds = [];
+              if (!taskData.tags) taskData.tags = [];
+
+              this.tasks.set(taskData.id, taskData);
+              loaded++;
+            } catch {
+              errors++;
+            }
+          }
+        } catch {
+          // Skip failed batch, continue with next
+        }
+      }
+
+      eventBus.emit(createEvent(
+        'system:info',
+        `Loaded ${loaded} task(s) from Agentic FS (${errors} error(s), ${fileIds.length} file(s) scanned)`,
+      ));
+    } catch {
+      eventBus.emit(createEvent(
+        'system:info',
+        'Agentic FS unavailable — starting with empty task store',
+      ));
+    }
+  }
+
   private async executeAsync(task: Task): Promise<void> {
     // In plan mode, block delegation during orchestrator execution
     if (task.executionMode === 'plan') {
@@ -418,6 +506,8 @@ export class Orchestrator {
     assignedAgent?: string;
     parentTaskId?: string;
     executionMode?: ExecutionMode;
+    executionOrder?: number;
+    dependsOn?: string[];
   }): Task {
     const task: Task = {
       id: uuid(),
@@ -429,6 +519,8 @@ export class Orchestrator {
       assignedAgent: params.assignedAgent,
       parentTaskId: params.parentTaskId,
       subtaskIds: [],
+      executionOrder: params.executionOrder,
+      dependsOn: params.dependsOn,
       tags: [],
       artifacts: [],
       createdAt: new Date().toISOString(),
@@ -498,7 +590,7 @@ export class Orchestrator {
   }
 
   /**
-   * Triggered on backlog→todo: delegates technical-writer subtasks
+   * Triggered on backlog→todo: runs wave 1 subtasks (typically technical-writer)
    * to create acceptance criteria and requirements documentation.
    */
   private async runDocumentationGeneration(task: Task): Promise<void> {
@@ -518,14 +610,21 @@ export class Orchestrator {
       task.id,
     ));
 
-    for (const subtask of writerSubtasks) {
-      this.executeDelegatedTask(subtask).catch(() => {});
-    }
+    const waveExecutor = new WaveExecutor(this.assembler, createAdapter(), this.toolRouter);
+    waveExecutor.executeWaves(
+      task, writerSubtasks, (taskId) => this.createTaskToolRouter(taskId),
+    ).catch((err) => {
+      eventBus.emit(createEvent(
+        'system:error',
+        `Documentation wave error: ${String(err)}`,
+        { error: String(err), taskId: task.id },
+      ));
+    });
   }
 
   /**
-   * Triggered on todo→in-progress: delegates to assigned agents
-   * for each subtask. Only runs agents that are assigned to subtasks.
+   * Triggered on todo→in-progress: runs all pending subtasks in sequential waves.
+   * Uses WaveExecutor for ordered execution based on executionOrder.
    */
   private async runImplementation(task: Task): Promise<void> {
     const subtasks = this.getSubtasks(task.id);
@@ -548,10 +647,17 @@ export class Orchestrator {
       task.id,
     ));
 
-    // Execute each pending subtask in background (don't block)
-    for (const subtask of pendingSubtasks) {
-      this.executeDelegatedTask(subtask).catch(() => {});
-    }
+    // Execute subtasks in sequential waves (non-blocking)
+    const waveExecutor = new WaveExecutor(this.assembler, createAdapter(), this.toolRouter);
+    waveExecutor.executeWaves(
+      task, pendingSubtasks, (taskId) => this.createTaskToolRouter(taskId),
+    ).catch((err) => {
+      eventBus.emit(createEvent(
+        'system:error',
+        `Implementation wave error: ${String(err)}`,
+        { error: String(err), taskId: task.id },
+      ));
+    });
   }
 
   /**

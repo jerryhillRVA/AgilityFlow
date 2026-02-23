@@ -38,7 +38,7 @@ const navSections: NavSection[] = [
     label: 'Work Management',
     items: [
       { label: 'Tickets', href: '/tickets', icon: Ticket },
-      { label: 'Status Board', href: '/sprint', icon: LayoutDashboard },
+      { label: 'Sprint Board', href: '/sprint', icon: LayoutDashboard },
       { label: 'Epics', href: '/epics', icon: Mountain },
       { label: 'Stories', href: '/stories', icon: BookOpen },
       { label: 'Sprints', href: '/sprints', icon: RefreshCw },

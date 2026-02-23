@@ -15,7 +15,12 @@ export type EventType =
   | 'task:transition_action'
   | 'task:subtask_cascade'
   | 'system:info'
-  | 'system:error';
+  | 'system:error'
+  | 'wave:started'
+  | 'wave:completed'
+  | 'wave:agent_started'
+  | 'wave:agent_completed'
+  | 'wave:agent_failed';
 
 export interface AgentEvent {
   id: string;

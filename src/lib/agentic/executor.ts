@@ -55,6 +55,8 @@ export class AgentExecutor {
         systemPrompt: prompt.systemPrompt,
         messages,
         tools: prompt.tools.length > 0 ? prompt.tools : undefined,
+        model: prompt.model,
+        maxTokens: 21000,
       });
 
       const inputDelta = response.usage.inputTokens;

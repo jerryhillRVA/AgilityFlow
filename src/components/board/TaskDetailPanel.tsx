@@ -6,6 +6,7 @@ import type { Task, TaskStatus, TaskArtifact, ArtifactCategory, IterationRecord 
 import { STATUS_COLORS } from '@/lib/agentic/task-transitions';
 import { StatusTransitionButtons } from './StatusTransitionButtons';
 import { ArtifactViewerModal } from './ArtifactViewerModal';
+import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 
 interface TaskDetailPanelProps {
   task: Task;
@@ -159,9 +160,13 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
             <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
               Description
             </div>
-            <div className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
-              {task.description || 'No description'}
-            </div>
+            {task.description ? (
+              <MarkdownRenderer content={task.description} />
+            ) : (
+              <div className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                No description
+              </div>
+            )}
           </div>
 
           {/* Details Grid */}
@@ -202,11 +207,8 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
               <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
                 Agent Result
               </div>
-              <div className="text-[11px] leading-relaxed whitespace-pre-wrap p-2 rounded" style={{
-                background: 'var(--bg-tertiary)',
-                color: 'var(--text-secondary)',
-              }}>
-                {task.result}
+              <div className="p-2 rounded" style={{ background: 'var(--bg-tertiary)' }}>
+                <MarkdownRenderer content={task.result} />
               </div>
             </div>
           )}
@@ -357,9 +359,7 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
               <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
                 Plan Summary
               </div>
-              <div className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
-                {task.planSummary}
-              </div>
+              <MarkdownRenderer content={task.planSummary} />
             </div>
           )}
         </div>

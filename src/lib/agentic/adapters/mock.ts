@@ -12,6 +12,7 @@ export class MockAdapter implements ModelAdapter {
     const userMsg = this.extractUserMessage(request);
     const systemPrompt = request.systemPrompt.toLowerCase();
     const hasTools = request.tools && request.tools.length > 0;
+    const isReWOO = systemPrompt.includes('<<<artifact') && !hasTools;
     const isOrchestrator = systemPrompt.includes('orchestrator');
     const isPlanMode = request.systemPrompt.includes('PLAN ONLY') || userMsg.includes('PLAN ONLY');
     const isTechnicalWriter = systemPrompt.includes('technical writer');
@@ -24,6 +25,11 @@ export class MockAdapter implements ModelAdapter {
       m => m.role === 'user' && Array.isArray(m.content) && (m.content as ContentBlock[]).some(b => b.type === 'tool_result')
     );
     const isFirstCall = !hasToolResults;
+
+    // ReWOO single-shot mode: return artifacts in delimited format (no tools)
+    if (isReWOO) {
+      return this.simulateReWOOResponse(userMsg, isTechnicalWriter, isQAAnalyst, isDeveloper, isCodeReviewer);
+    }
 
     // Orchestrator in plan mode: create subtasks instead of delegating
     if (isOrchestrator && isPlanMode && hasTools && isFirstCall) {
@@ -77,6 +83,7 @@ export class MockAdapter implements ModelAdapter {
             description: `Create detailed acceptance criteria and requirements documentation for this task. Define clear, testable success criteria using Given/When/Then format. Document scope, constraints, and dependencies.`,
             priority: 'high',
             assigned_agent: 'technical-writer',
+            execution_order: 1,
           },
         },
         {
@@ -88,6 +95,7 @@ export class MockAdapter implements ModelAdapter {
             description: `Create comprehensive test cases covering API tests, UI tests, and integration tests as applicable. Include both happy path and error scenarios with clear pass/fail criteria.`,
             priority: 'high',
             assigned_agent: 'qa-analyst',
+            execution_order: 2,
           },
         },
         {
@@ -99,6 +107,7 @@ export class MockAdapter implements ModelAdapter {
             description: `Implement the core functionality as described in the task requirements. Follow project conventions and create implementation artifacts.`,
             priority: 'medium',
             assigned_agent: 'backend-developer',
+            execution_order: 2,
           },
         },
         {
@@ -110,6 +119,7 @@ export class MockAdapter implements ModelAdapter {
             description: `Review all implementation artifacts for code quality, security, maintainability, and correctness. Create a review report with findings.`,
             priority: 'low',
             assigned_agent: 'code-reviewer',
+            execution_order: 3,
           },
         },
       ],
@@ -261,6 +271,123 @@ export class MockAdapter implements ModelAdapter {
       content,
       stopReason: 'end_turn',
       usage: { inputTokens: 100, outputTokens: 60 },
+    };
+  }
+
+  private simulateReWOOResponse(
+    userMsg: string,
+    isTechnicalWriter: boolean,
+    isQAAnalyst: boolean,
+    isDeveloper: boolean,
+    isCodeReviewer: boolean,
+  ): ModelResponse {
+    const taskRef = userMsg.slice(0, 50);
+    let artifactText: string;
+
+    if (isTechnicalWriter) {
+      artifactText = [
+        `Generating documentation for "${taskRef}..."`,
+        '',
+        `<<<ARTIFACT filename="acceptance-criteria.md" category="requirements">>>`,
+        `# Acceptance Criteria`,
+        ``,
+        `## Task: ${taskRef}`,
+        ``,
+        `### Criteria`,
+        `1. **Given** the requirements are defined **When** implementation is complete **Then** all requirements are met`,
+        `2. **Given** the system is running **When** the feature is used **Then** it behaves as specified`,
+        `3. **Given** test cases exist **When** all tests run **Then** all tests pass`,
+        `<<<END_ARTIFACT>>>`,
+        '',
+        `<<<ARTIFACT filename="requirements-summary.md" category="requirements">>>`,
+        `# Requirements Summary`,
+        ``,
+        `## Task: ${taskRef}`,
+        ``,
+        `### Functional Requirements`,
+        `1. The system shall support the described functionality`,
+        `2. All user interactions shall be validated`,
+        `3. Results shall be persisted to the Agentic FS`,
+        `<<<END_ARTIFACT>>>`,
+        '',
+        'Documentation artifacts generated successfully.',
+      ].join('\n');
+    } else if (isQAAnalyst) {
+      artifactText = [
+        `Creating test cases for "${taskRef}..."`,
+        '',
+        `<<<ARTIFACT filename="test-cases.md" category="verification">>>`,
+        `# Test Cases`,
+        ``,
+        `## Task: ${taskRef}`,
+        ``,
+        `| # | Test Case | Expected Result |`,
+        `|---|-----------|-----------------|`,
+        `| 1 | Create resource | Returns 201 with created resource |`,
+        `| 2 | Get resource | Returns 200 with resource data |`,
+        `| 3 | Invalid input | Returns 400 with validation error |`,
+        `| 4 | Not found | Returns 404 |`,
+        `<<<END_ARTIFACT>>>`,
+        '',
+        'Test case artifacts generated successfully.',
+      ].join('\n');
+    } else if (isDeveloper) {
+      const isBackend = userMsg.toLowerCase().includes('backend') || userMsg.toLowerCase().includes('api');
+      const filename = isBackend ? 'api-implementation.md' : 'ui-implementation.md';
+      artifactText = [
+        `Implementing "${taskRef}..."`,
+        '',
+        `<<<ARTIFACT filename="${filename}" category="implementation">>>`,
+        `# ${isBackend ? 'API' : 'UI'} Implementation`,
+        ``,
+        `## Task: ${taskRef}`,
+        ``,
+        `### Implementation Notes`,
+        `- Follows project conventions`,
+        `- TypeScript strict mode`,
+        `- Error handling included`,
+        `<<<END_ARTIFACT>>>`,
+        '',
+        'Implementation artifacts generated successfully.',
+      ].join('\n');
+    } else if (isCodeReviewer) {
+      artifactText = [
+        `Reviewing "${taskRef}..."`,
+        '',
+        `<<<ARTIFACT filename="code-review-report.md" category="verification">>>`,
+        `# Code Review Report`,
+        ``,
+        `## Task: ${taskRef}`,
+        ``,
+        `### Summary`,
+        `Overall: **Pass** with minor suggestions`,
+        ``,
+        `### Verdict`,
+        `**Approved** — ready for final review.`,
+        `<<<END_ARTIFACT>>>`,
+        '',
+        'Review artifacts generated successfully.',
+      ].join('\n');
+    } else {
+      artifactText = [
+        `Processing "${taskRef}..."`,
+        '',
+        `<<<ARTIFACT filename="output.md" category="other">>>`,
+        `# Output`,
+        ``,
+        `## Task: ${taskRef}`,
+        ``,
+        `Task processed successfully with mock adapter.`,
+        `<<<END_ARTIFACT>>>`,
+        '',
+        'Artifacts generated successfully.',
+      ].join('\n');
+    }
+
+    return {
+      content: [{ type: 'text', text: artifactText }],
+      stopReason: 'end_turn',
+      usage: { inputTokens: 150, outputTokens: 200 },
     };
   }
 

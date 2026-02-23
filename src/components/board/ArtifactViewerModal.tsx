@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Loader2, FileText } from 'lucide-react';
+import { X, Loader2, FileText, Maximize2, Minimize2 } from 'lucide-react';
+import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 import type { TaskArtifact } from '@/types/task';
 
 interface ArtifactViewerModalProps {
@@ -20,6 +21,7 @@ export function ArtifactViewerModal({ artifact, onClose }: ArtifactViewerModalPr
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') onClose();
@@ -52,6 +54,11 @@ export function ArtifactViewerModal({ artifact, onClose }: ArtifactViewerModalPr
   }, [artifact.fileId]);
 
   const categoryColor = CATEGORY_COLORS[artifact.category] || CATEGORY_COLORS.other;
+  const isMarkdown = artifact.filename.endsWith('.md');
+
+  const modalClasses = expanded
+    ? 'fixed top-[2%] left-1/2 -translate-x-1/2 z-[70] w-[95vw] max-w-[1400px] max-h-[93vh] rounded-lg border overflow-hidden flex flex-col'
+    : 'fixed top-[5%] left-1/2 -translate-x-1/2 z-[70] w-[700px] max-w-[90vw] max-h-[85vh] rounded-lg border overflow-hidden flex flex-col';
 
   return (
     <>
@@ -64,10 +71,11 @@ export function ArtifactViewerModal({ artifact, onClose }: ArtifactViewerModalPr
 
       {/* Modal */}
       <div
-        className="fixed top-[5%] left-1/2 -translate-x-1/2 z-[70] w-[700px] max-w-[90vw] max-h-[85vh] rounded-lg border overflow-hidden flex flex-col"
+        className={modalClasses}
         style={{
           background: 'var(--bg-secondary)',
           borderColor: 'var(--border)',
+          transition: 'width 0.2s ease, max-width 0.2s ease, max-height 0.2s ease, top 0.2s ease',
         }}
       >
         {/* Header */}
@@ -94,13 +102,23 @@ export function ArtifactViewerModal({ artifact, onClose }: ArtifactViewerModalPr
               </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded transition-colors shrink-0"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="p-1.5 rounded transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+              title={expanded ? 'Collapse' : 'Expand'}
+            >
+              {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded transition-colors"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -119,12 +137,16 @@ export function ArtifactViewerModal({ artifact, onClose }: ArtifactViewerModalPr
           )}
 
           {content !== null && !loading && (
-            <pre
-              className="text-xs leading-relaxed whitespace-pre-wrap font-mono"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              {content}
-            </pre>
+            isMarkdown ? (
+              <MarkdownRenderer content={content} />
+            ) : (
+              <pre
+                className="text-xs leading-relaxed whitespace-pre-wrap font-mono"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {content}
+              </pre>
+            )
           )}
         </div>
       </div>

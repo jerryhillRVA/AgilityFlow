@@ -31,7 +31,12 @@ export interface ToolSchema {
 export interface ModelResponse {
   content: ContentBlock[];
   stopReason: string;
-  usage: { inputTokens: number; outputTokens: number };
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  };
 }
 
 export interface ModelAdapter {
