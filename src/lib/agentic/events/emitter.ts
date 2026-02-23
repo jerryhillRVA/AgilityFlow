@@ -1,4 +1,7 @@
 import type { AgentEvent } from '@/types/events';
+import { getAgenticFSClient } from '@/lib/agentic-fs-client';
+import { NS, paths } from '../fs-paths';
+import { log } from '../logger';
 
 type EventListener = (event: AgentEvent) => void;
 
@@ -18,6 +21,9 @@ class EventBus {
     for (const listener of this.listeners) {
       try { listener(event); } catch { /* ignore failed listeners */ }
     }
+
+    // Persist to Agentic FS (fire-and-forget, non-blocking)
+    this.persistEvent(event);
   }
 
   getRecent(count?: number): AgentEvent[] {
@@ -26,6 +32,23 @@ class EventBus {
 
   clear(): void {
     this.buffer = [];
+  }
+
+  /** Write event to Agentic FS events namespace. Never throws — failures are logged and ignored. */
+  private persistEvent(event: AgentEvent): void {
+    try {
+      const date = event.timestamp.slice(0, 10); // YYYY-MM-DD
+      const fs = getAgenticFSClient();
+      fs.uploadFile(
+        JSON.stringify(event),
+        `${event.id}.json`,
+        { namespace: NS.EVENTS, path: paths.events.dir(date) },
+      ).catch((err) => {
+        log.debug('event-bus', `Failed to persist event ${event.id}`, { error: String(err) });
+      });
+    } catch (err) {
+      log.debug('event-bus', `Failed to persist event ${event.id}`, { error: String(err) });
+    }
   }
 }
 

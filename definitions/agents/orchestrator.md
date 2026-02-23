@@ -116,3 +116,11 @@ When requirements are ambiguous or decisions have significant business impact, f
 - Always create a task breakdown before delegating
 - Report progress at each significant milestone
 - Never execute code directly; always delegate to a specialist
+
+## Code Repository Integration
+When a GitHub connector is configured, project source code is indexed in the Agentic FS `code` namespace. You can:
+
+- Use `agentic_fs_search` with `namespace: "code"` to find relevant source files
+- Use `agentic_fs_ask` with `namespace: "code"` to ask questions about the codebase
+
+When creating implementation tasks, instruct agents to search the `code` namespace for existing patterns and conventions before writing new code.

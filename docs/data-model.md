@@ -40,7 +40,7 @@ Agentic FS Instance
 
 ## 2. Namespaces
 
-Every project tenant contains 6 namespaces. These are the top-level organizational units within a tenant.
+Every project tenant contains 8 namespaces. These are the top-level organizational units within a tenant.
 
 | Namespace | Purpose | Contents |
 |-----------|---------|----------|
@@ -50,6 +50,8 @@ Every project tenant contains 6 namespaces. These are the top-level organization
 | `artifacts` | Work products | Code, PRs, docs, reviews, specs |
 | `memory` | Agent persistent memory | Per-agent context and decision history |
 | `knowledge` | Shared project knowledge | Architecture, conventions, charter, tech stack |
+| `settings` | Project configuration | Connector configs, encrypted secrets |
+| `code` | Source code index | Indexed repository files for semantic search/RAG |
 
 Namespace names are defined as constants in `src/lib/agentic/fs-paths.ts` (`NS.TASKS`, `NS.SPRINTS`, etc.).
 
@@ -104,15 +106,23 @@ Namespace names are defined as constants in `src/lib/agentic/fs-paths.ts` (`NS.T
 │       └── {agentName}/
 │           └── {memoryFile}.md
 │
-└── knowledge/                          # NS.KNOWLEDGE
-    ├── architecture/
-    │   └── {filename}
-    ├── conventions/
-    │   └── {filename}
-    ├── charter/
-    │   └── {filename}
-    └── tech-stack/
-        └── {filename}
+├── knowledge/                          # NS.KNOWLEDGE
+│   ├── architecture/
+│   │   └── {filename}
+│   ├── conventions/
+│   │   └── {filename}
+│   ├── charter/
+│   │   └── {filename}
+│   └── tech-stack/
+│       └── {filename}
+│
+├── settings/                           # NS.SETTINGS
+│   └── config/
+│       └── settings.json              # encrypted connector configs
+│
+└── code/                               # NS.CODE — indexed from GitHub
+    └── {directory-path}/               # mirrors repo directory structure
+        └── {filename}                  # uploaded by GitHub connector
 ```
 
 ---
@@ -259,7 +269,7 @@ Stored at: `_registry` tenant, `knowledge/projects/{projectId}.json`
 | Element | Convention | Examples |
 |---------|-----------|----------|
 | Tenant names | kebab-case project slug | `acme-webapp`, `mobile-app-v2`, `default` |
-| Namespace names | lowercase plural | `tasks`, `sprints`, `events`, `artifacts`, `memory`, `knowledge` |
+| Namespace names | lowercase plural | `tasks`, `sprints`, `events`, `artifacts`, `memory`, `knowledge`, `settings`, `code` |
 | Directory paths | kebab-case | `pull-requests`, `in-progress`, `tech-stack` |
 | Entity files | `{id}.json` | `550e8400-e29b-41d4-a716-446655440000.json` |
 | Document files | `{name}.md` | `project-context.md`, `decisions.md` |
@@ -305,3 +315,7 @@ All path construction in application code uses the typed builders in `src/lib/ag
 | `paths.registry.org(orgId)` | Registry org path | `"orgs/acme-corp.json"` |
 | `paths.registry.portfolio(id)` | Registry portfolio path | `"portfolios/web-apps.json"` |
 | `paths.registry.project(id)` | Registry project path | `"projects/acme-webapp.json"` |
+| `paths.settings.dir()` | Settings directory | `"config"` |
+| `paths.settings.file()` | Settings file path | `"config/settings.json"` |
+| `paths.code.dir(dirPath)` | Code directory path | `"src/lib"` |
+| `paths.code.file(dirPath, file)` | Code file path | `"src/lib/crypto.ts"` |

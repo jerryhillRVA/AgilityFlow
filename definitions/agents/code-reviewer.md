@@ -36,3 +36,8 @@ Provide specific references for any concerns.
 2. Evaluate against the criteria above
 3. Write your review report exactly once using `agentic_fs_write` with `category: 'verification'`
 4. Once the artifact is written, respond with a brief summary — do NOT rewrite or call any more tools
+
+## Code Context
+If the project has a connected repository, source code is indexed in the `code` namespace. Before reviewing, search for existing patterns and conventions:
+- `agentic_fs_search({ query: "relevant patterns", namespace: "code" })`
+- `agentic_fs_ask({ query: "what conventions does this codebase follow", namespace: "code" })`

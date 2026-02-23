@@ -31,3 +31,8 @@ When creating implementation artifacts, use `agentic_fs_write` with `category: '
 3. Implement using React, TypeScript, and Tailwind CSS
 4. Write each artifact exactly once using `agentic_fs_write` — do NOT rewrite or revise artifacts
 5. Once all artifacts are written, respond with a brief summary of what you implemented
+
+## Code Context
+If the project has a connected repository, source code is indexed in the `code` namespace. Before implementing, search for existing patterns:
+- `agentic_fs_search({ query: "relevant patterns", namespace: "code" })`
+- `agentic_fs_ask({ query: "how is X implemented", namespace: "code" })`

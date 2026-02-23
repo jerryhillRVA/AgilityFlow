@@ -11,6 +11,11 @@ import { createEvent } from './events/types';
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NS, paths } from './fs-paths';
 import { v4 as uuid } from 'uuid';
+import { initializeConnectors } from './connectors/startup';
+import { log } from './logger';
+
+/** Agents that are expected to produce implementation artifacts */
+const CODING_AGENTS = ['backend-developer', 'frontend-developer'];
 
 /** All task status directories in the Agentic FS */
 const ALL_TASK_STATUSES: TaskStatus[] = [
@@ -73,6 +78,9 @@ export class Orchestrator {
       'system:info',
       `Orchestrator initialized with ${this.registry.agents.size} agents, ${this.registry.skills.size} skills (adapter: ${adapter.name})`,
     ));
+
+    // Fire up connectors (non-blocking, fire-and-forget)
+    initializeConnectors();
   }
 
   private registerOrchestrationTools(assembler: PromptAssembler, adapter: ReturnType<typeof createAdapter>): void {
@@ -185,9 +193,14 @@ export class Orchestrator {
               createdAt: new Date().toISOString(),
               category,
             });
+            log.info('orchestrator', `Artifact tracked: ${input.filename}`, { taskId, fileId: parsed.file_id, category });
+          } else if (parsed.error) {
+            log.error('orchestrator', `agentic_fs_write returned error for "${input.filename}"`, { taskId, error: parsed.error, category });
+          } else {
+            log.warn('orchestrator', `agentic_fs_write response missing file_id for "${input.filename}"`, { taskId, result: result.slice(0, 200) });
           }
-        } catch {
-          // Parse failed or no file_id — skip artifact tracking
+        } catch (parseErr) {
+          log.error('orchestrator', `Failed to parse agentic_fs_write response for "${input.filename}"`, { taskId, parseError: String(parseErr), result: result.slice(0, 200) });
         }
 
         return result;
@@ -324,8 +337,18 @@ export class Orchestrator {
         iterations: result.usage.iterationDetails?.length || 1,
         iterationDetails: result.usage.iterationDetails,
       };
-      // Subtasks complete to done — parent gates on all subtasks being done
-      this.updateTaskStatus(task.id, 'done');
+
+      // Validate coding agents produced artifacts
+      const artifactCount = task.artifacts?.length || 0;
+      if (CODING_AGENTS.includes(task.assignedAgent!) && artifactCount === 0) {
+        log.warn('orchestrator', `Coding agent "${task.assignedAgent}" completed with ZERO artifacts for "${task.title}"`, { taskId: task.id });
+        this.updateTaskStatus(task.id, 'blocked');
+        task.errorMessage = `Agent ${task.assignedAgent} completed execution but produced no artifacts.`;
+      } else {
+        log.info('orchestrator', `Task "${task.title}" completed with ${artifactCount} artifact(s)`, { taskId: task.id, agent: task.assignedAgent });
+        this.updateTaskStatus(task.id, 'done');
+      }
+
       // Persist updated state
       this.persistTaskUpdate(task).catch(() => {});
     } catch (error) {
@@ -612,7 +635,9 @@ export class Orchestrator {
 
     const waveExecutor = new WaveExecutor(this.assembler, createAdapter(), this.toolRouter);
     waveExecutor.executeWaves(
-      task, writerSubtasks, (taskId) => this.createTaskToolRouter(taskId),
+      task, writerSubtasks,
+      (taskId) => this.createTaskToolRouter(taskId),
+      (subtask) => this.persistTaskUpdate(subtask).catch(() => {}),
     ).catch((err) => {
       eventBus.emit(createEvent(
         'system:error',
@@ -650,7 +675,9 @@ export class Orchestrator {
     // Execute subtasks in sequential waves (non-blocking)
     const waveExecutor = new WaveExecutor(this.assembler, createAdapter(), this.toolRouter);
     waveExecutor.executeWaves(
-      task, pendingSubtasks, (taskId) => this.createTaskToolRouter(taskId),
+      task, pendingSubtasks,
+      (taskId) => this.createTaskToolRouter(taskId),
+      (subtask) => this.persistTaskUpdate(subtask).catch(() => {}),
     ).catch((err) => {
       eventBus.emit(createEvent(
         'system:error',

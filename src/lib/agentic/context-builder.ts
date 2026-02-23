@@ -1,5 +1,7 @@
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
+import { NS } from './fs-paths';
 import type { Task, TaskArtifact, ArtifactCategory } from '@/types/task';
+import { log } from './logger';
 
 /** Maps agent roles to the artifact categories they need as context */
 const AGENT_CATEGORY_MAP: Record<string, ArtifactCategory[]> = {
@@ -42,7 +44,8 @@ export async function buildAgentContext(
           ? content.slice(0, MAX_ARTIFACT_CHARS) + '\n... [truncated]'
           : content;
         parts.push(`### ${artifact.filename} (${artifact.category})\n${truncated}`);
-      } catch {
+      } catch (err) {
+        log.warn('context-builder', `Failed to fetch artifact "${artifact.filename}" (${artifact.fileId})`, { error: String(err) });
         parts.push(`### ${artifact.filename} (${artifact.category})\n[Could not fetch]`);
       }
     }
@@ -58,8 +61,22 @@ export async function buildAgentContext(
     if (ragResult?.answer) {
       parts.push(`## Related Context\n${ragResult.answer.slice(0, MAX_RAG_CHARS)}`);
     }
-  } catch {
-    // FS not available — proceed without RAG context
+  } catch (err) {
+    log.debug('context-builder', 'RAG context unavailable', { error: String(err) });
+  }
+
+  // 4. Code context from indexed repository (best-effort)
+  try {
+    const fsClient = getAgenticFSClient();
+    const codeResult = await fsClient.ask(
+      `Relevant source code for: ${task.title}. Focus on ${agentId} patterns and implementations.`,
+      { k: 3, namespace: NS.CODE },
+    );
+    if (codeResult?.answer) {
+      parts.push(`## Codebase Context\n${codeResult.answer.slice(0, MAX_RAG_CHARS)}`);
+    }
+  } catch (err) {
+    log.debug('context-builder', 'Code namespace RAG unavailable', { error: String(err) });
   }
 
   return parts.join('\n\n');

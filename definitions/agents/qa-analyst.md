@@ -52,3 +52,8 @@ Create a test case document (`{taskId}-test-cases.md`) that includes:
 3. Identify all testable behaviors and requirements
 4. Write your test artifact exactly once using `agentic_fs_write` — do NOT rewrite or revise artifacts
 5. Once the artifact is written, respond with a brief summary — do NOT call any more tools
+
+## Code Context
+If the project has a connected repository, source code is indexed in the `code` namespace. Before writing tests, search for existing test patterns:
+- `agentic_fs_search({ query: "existing test patterns", namespace: "code" })`
+- `agentic_fs_ask({ query: "how are tests structured in this codebase", namespace: "code" })`

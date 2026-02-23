@@ -11,6 +11,8 @@ export const NS = {
   ARTIFACTS: 'artifacts',
   MEMORY: 'memory',
   KNOWLEDGE: 'knowledge',
+  SETTINGS: 'settings',
+  CODE: 'code',
 } as const;
 
 export type Namespace = (typeof NS)[keyof typeof NS];
@@ -69,6 +71,16 @@ export const paths = {
     portfolio: (portfolioId: string): string => `portfolios/${portfolioId}.json`,
     project: (projectId: string): string => `projects/${projectId}.json`,
   },
+
+  settings: {
+    dir: (): string => 'config',
+    file: (): string => 'config/settings.json',
+  },
+
+  code: {
+    dir: (dirPath: string): string => dirPath,
+    file: (dirPath: string, filename: string): string => `${dirPath}/${filename}`,
+  },
 };
 
 // ── Base Directories ──
@@ -94,6 +106,11 @@ export const PROJECT_BASE_DIRS: { namespace: Namespace; path: string }[] = [
   { namespace: NS.KNOWLEDGE, path: 'conventions' },
   { namespace: NS.KNOWLEDGE, path: 'charter' },
   { namespace: NS.KNOWLEDGE, path: 'tech-stack' },
+
+  // Settings
+  { namespace: NS.SETTINGS, path: 'config' },
+
+  // Code namespace — directories created on-demand by GitHub connector
 ];
 
 // Directories created by initializeRegistry() for the _registry tenant.

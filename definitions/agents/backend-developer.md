@@ -41,3 +41,8 @@ When creating implementation artifacts, use `agentic_fs_write` with `category: '
 ## Working Style
 - Use `agentic_fs_ask` as your primary context-gathering tool before starting
 - Write each artifact once, then stop — do not revise or rewrite
+
+## Code Context
+If the project has a connected repository, source code is indexed in the `code` namespace. Before implementing, search for existing patterns:
+- `agentic_fs_search({ query: "relevant patterns", namespace: "code" })`
+- `agentic_fs_ask({ query: "how is X implemented", namespace: "code" })`

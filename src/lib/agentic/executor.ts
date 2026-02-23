@@ -4,6 +4,7 @@ import type { ToolRouter } from './tools/tool-router';
 import type { Task, IterationRecord } from '@/types/task';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
+import { log } from './logger';
 
 export interface ExecutionResult {
   agentId: string;
@@ -36,6 +37,7 @@ export class AgentExecutor {
   async execute(agentId: string, task: Task, additionalContext?: string, maxIterationsOverride?: number): Promise<ExecutionResult> {
     const prompt = this.assembler.assemble(agentId, task, additionalContext);
     const maxIterations = maxIterationsOverride || prompt.maxIterations || DEFAULT_MAX_ITERATIONS;
+    log.info('executor', `Starting ReAct loop for ${agentId} on "${task.title}" (max ${maxIterations} iterations)`, { taskId: task.id });
     const messages: ModelMessage[] = [{ role: 'user', content: prompt.userMessage }];
     const toolCalls: ToolCallRecord[] = [];
     const iterationDetails: IterationRecord[] = [];
@@ -82,6 +84,7 @@ export class AgentExecutor {
           toolCalls: ['[truncated]'],
         });
 
+        log.warn('executor', `Output truncated at max_tokens for ${agentId} iteration ${i + 1}/${maxIterations}`, { taskId: task.id });
         eventBus.emit(createEvent(
           'agent:error',
           `Agent ${agentId} output truncated at max_tokens on iteration ${i + 1} — skipping partial tool calls`,
@@ -113,6 +116,7 @@ export class AgentExecutor {
           .map(b => b.text || '')
           .join('');
 
+        log.info('executor', `${agentId} completed in ${i + 1} iterations (${totalInput}in/${totalOutput}out tokens)`, { taskId: task.id });
         eventBus.emit(createEvent(
           'agent:completed',
           `Agent ${agentId} completed (${i + 1} iterations, ${totalInput}in / ${totalOutput}out tokens): ${task.title}`,
@@ -148,6 +152,7 @@ export class AgentExecutor {
         ));
 
         const result = await this.toolRouter.execute(toolName, toolInput);
+        log.debug('executor', `${agentId} tool call: ${toolName}`, { taskId: task.id, iteration: i + 1 });
         toolCalls.push({ toolName, input: toolInput, output: result });
         iterationToolCalls.push(toolName);
 
@@ -184,6 +189,7 @@ export class AgentExecutor {
     }
 
     // Max iterations reached
+    log.error('executor', `${agentId} reached max iterations (${maxIterations}) without completion`, { taskId: task.id, totalInput, totalOutput });
     eventBus.emit(createEvent(
       'agent:error',
       `Agent ${agentId} reached max iterations (${maxIterations}), ${totalInput}in / ${totalOutput}out tokens`,

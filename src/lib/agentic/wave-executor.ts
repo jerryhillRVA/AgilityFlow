@@ -7,6 +7,10 @@ import { buildAgentContext } from './context-builder';
 import { parseArtifacts } from './artifact-parser';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
+import { log } from './logger';
+
+/** Agents that are expected to produce implementation artifacts */
+const CODING_AGENTS = ['backend-developer', 'frontend-developer'];
 
 interface WaveGroup {
   waveNumber: number;
@@ -22,13 +26,26 @@ interface WaveGroup {
  *   Tier 2: ReAct iterative loop (existing AgentExecutor)
  */
 export class WaveExecutor {
-  private static readonly SUB_AGENT_MAX_ITERATIONS = 5;
+  /** Role-based iteration budget for the ReAct fallback tier.
+   *  Coding agents need more headroom: ask(1) + read/search(1-2) + write artifacts(1-2) + max_tokens retry(1-2). */
+  private static readonly ITERATION_BUDGET: Record<string, number> = {
+    'backend-developer': 10,
+    'frontend-developer': 10,
+    'code-reviewer': 8,
+    'qa-analyst': 8,
+    'technical-writer': 8,
+  };
+  private static readonly DEFAULT_ITERATIONS = 8;
 
   constructor(
     private assembler: PromptAssembler,
     private adapter: ModelAdapter,
     private toolRouter: ToolRouter,
   ) {}
+
+  private getIterationBudget(agentId: string): number {
+    return WaveExecutor.ITERATION_BUDGET[agentId] ?? WaveExecutor.DEFAULT_ITERATIONS;
+  }
 
   /**
    * Execute all subtasks grouped by executionOrder.
@@ -38,6 +55,7 @@ export class WaveExecutor {
     parentTask: Task,
     subtasks: Task[],
     createTaskToolRouter: (taskId: string) => ToolRouter,
+    onSubtaskUpdate?: (subtask: Task) => void,
   ): Promise<void> {
     const waves = this.groupByWave(subtasks);
 
@@ -53,7 +71,7 @@ export class WaveExecutor {
       // Agents within a wave run SEQUENTIALLY
       for (const subtask of wave.subtasks) {
         const taskToolRouter = createTaskToolRouter(subtask.id);
-        await this.executeSubtask(parentTask, subtask, taskToolRouter);
+        await this.executeSubtask(parentTask, subtask, taskToolRouter, onSubtaskUpdate);
       }
 
       eventBus.emit(createEvent(
@@ -75,6 +93,7 @@ export class WaveExecutor {
     parentTask: Task,
     subtask: Task,
     taskToolRouter: ToolRouter,
+    onSubtaskUpdate?: (subtask: Task) => void,
   ): Promise<void> {
     const agentId = subtask.assignedAgent;
     if (!agentId) return;
@@ -90,16 +109,20 @@ export class WaveExecutor {
     // Update subtask status
     subtask.status = 'in-progress';
     subtask.updatedAt = new Date().toISOString();
+    onSubtaskUpdate?.(subtask);
 
     try {
       // Build pre-fetched context from parent + prior artifacts
       const priorArtifacts = parentTask.artifacts || [];
+      log.info('wave-executor', `Building context for ${agentId} with ${priorArtifacts.length} prior artifact(s)`, { subtaskId: subtask.id });
       const context = await buildAgentContext(parentTask, agentId, priorArtifacts);
 
       try {
         // Tier 1: ReWOO single-shot
+        log.info('wave-executor', `ReWOO starting for ${agentId} on "${subtask.title}"`, { subtaskId: subtask.id });
         await this.executeReWOO(subtask, agentId, context, taskToolRouter, parentTask);
       } catch (reWOOError) {
+        log.warn('wave-executor', `ReWOO failed for ${agentId}: ${String(reWOOError)}`, { subtaskId: subtask.id });
         eventBus.emit(createEvent(
           'wave:agent_failed',
           `ReWOO failed for ${agentId}, falling back to ReAct: ${String(reWOOError)}`,
@@ -109,28 +132,62 @@ export class WaveExecutor {
         ));
 
         // Tier 2: ReAct iterative loop
+        const maxIter = this.getIterationBudget(agentId);
+        log.info('wave-executor', `Falling back to ReAct for ${agentId} with ${maxIter} iterations`, { subtaskId: subtask.id });
         const executor = new AgentExecutor(this.assembler, this.adapter, taskToolRouter);
         const result = await executor.execute(
-          agentId, subtask, context, WaveExecutor.SUB_AGENT_MAX_ITERATIONS,
+          agentId, subtask, context, maxIter,
         );
         this.recordUsage(subtask, result.response, result.usage);
       }
 
-      subtask.status = 'done';
-      subtask.updatedAt = new Date().toISOString();
+      // Validate artifact output before marking done
+      const artifactCount = subtask.artifacts?.length || 0;
 
-      eventBus.emit(createEvent(
-        'wave:agent_completed',
-        `Agent ${agentId} completed "${subtask.title}"`,
-        { agentId, subtaskId: subtask.id, artifacts: subtask.artifacts?.length || 0 },
-        agentId,
-        subtask.id,
-      ));
+      if (CODING_AGENTS.includes(agentId) && artifactCount === 0) {
+        log.warn('wave-executor', `Coding agent "${agentId}" completed with ZERO artifacts for "${subtask.title}"`, {
+          subtaskId: subtask.id,
+          agentId,
+        });
+
+        subtask.status = 'blocked';
+        subtask.errorMessage = `Agent ${agentId} completed execution but produced no artifacts. Check Agentic FS connectivity and agent output.`;
+        subtask.updatedAt = new Date().toISOString();
+        onSubtaskUpdate?.(subtask);
+
+        eventBus.emit(createEvent(
+          'wave:agent_failed',
+          `Agent ${agentId} completed "${subtask.title}" but produced ZERO artifacts — marked as blocked`,
+          { agentId, subtaskId: subtask.id, artifacts: 0 },
+          agentId,
+          subtask.id,
+        ));
+      } else {
+        subtask.status = 'done';
+        subtask.updatedAt = new Date().toISOString();
+        onSubtaskUpdate?.(subtask);
+
+        log.info('wave-executor', `Agent ${agentId} completed "${subtask.title}" with ${artifactCount} artifact(s)`, {
+          subtaskId: subtask.id,
+          agentId,
+          artifactCount,
+        });
+
+        eventBus.emit(createEvent(
+          'wave:agent_completed',
+          `Agent ${agentId} completed "${subtask.title}"`,
+          { agentId, subtaskId: subtask.id, artifacts: artifactCount },
+          agentId,
+          subtask.id,
+        ));
+      }
     } catch (error) {
       subtask.status = 'blocked';
       subtask.errorMessage = String(error);
       subtask.updatedAt = new Date().toISOString();
+      onSubtaskUpdate?.(subtask);
 
+      log.error('wave-executor', `Agent ${agentId} failed on "${subtask.title}": ${String(error)}`, { subtaskId: subtask.id });
       eventBus.emit(createEvent(
         'wave:agent_failed',
         `Agent ${agentId} failed on "${subtask.title}": ${String(error)}`,
@@ -173,12 +230,18 @@ export class WaveExecutor {
     // Parse artifacts from delimited output
     const parsed = parseArtifacts(text);
 
+    log.info('wave-executor', `ReWOO parsed ${parsed.artifacts.length} artifact(s) from ${agentId}`, {
+      subtaskId: subtask.id,
+      artifacts: parsed.artifacts.map(a => a.filename),
+    });
+
     if (parsed.artifacts.length === 0) {
       throw new Error('ReWOO response contained no artifacts');
     }
 
     // Write each artifact via the task-scoped tool router
     for (const artifact of parsed.artifacts) {
+      log.debug('wave-executor', `ReWOO writing artifact "${artifact.filename}" via taskToolRouter`, { subtaskId: subtask.id, category: artifact.category });
       await taskToolRouter.execute('agentic_fs_write', {
         filename: artifact.filename,
         content: artifact.content,

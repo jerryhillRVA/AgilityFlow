@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import {
   Zap, Bot, Puzzle, FileText, Wrench,
   Ticket, LayoutDashboard, List, BarChart3,
   Mountain, BookOpen, RefreshCw,
   ClipboardList, User, FileCode, Cpu,
   Building2, TestTube, Rocket, Container,
-  Activity, Globe, Settings, Home,
+  Activity, Globe, Settings, Home, ChevronDown,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -68,8 +69,40 @@ const navSections: NavSection[] = [
   },
 ];
 
+const SIDEBAR_COLLAPSE_KEY = 'agilityflow-sidebar-collapsed';
+
+function loadCollapsedState(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const stored = localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsedState);
+
+  // Persist collapsed state to localStorage
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSE_KEY, JSON.stringify(collapsed));
+  }, [collapsed]);
+
+  // Auto-expand section when navigating to a page within it
+  useEffect(() => {
+    for (const section of navSections) {
+      if (collapsed[section.label] && section.items.some(item => pathname === item.href)) {
+        setCollapsed(prev => ({ ...prev, [section.label]: false }));
+        break;
+      }
+    }
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleSection(label: string) {
+    setCollapsed(prev => ({ ...prev, [label]: !prev[label] }));
+  }
 
   return (
     <aside className="w-64 flex-shrink-0 border-r overflow-y-auto"
@@ -94,11 +127,18 @@ export function Sidebar() {
 
         {navSections.map((section) => (
           <div key={section.label} className="mb-4">
-            <div className="px-3 py-1 text-[9px] font-semibold tracking-widest uppercase"
-              style={{ color: 'var(--text-muted)' }}>
+            <button
+              onClick={() => toggleSection(section.label)}
+              className="flex items-center justify-between w-full px-3 py-1 text-[9px] font-semibold tracking-widest uppercase cursor-pointer"
+              style={{ color: 'var(--text-muted)' }}
+            >
               {section.label}
-            </div>
-            {section.items.map((item) => {
+              <ChevronDown
+                size={10}
+                className={`transition-transform duration-150 ${collapsed[section.label] ? '-rotate-90' : ''}`}
+              />
+            </button>
+            {!collapsed[section.label] && section.items.map((item) => {
               const isActive = pathname === item.href;
               const Icon = item.icon;
               return (
