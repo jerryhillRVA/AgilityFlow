@@ -3,7 +3,7 @@ export type TaskStatus = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done' 
 export type SubtaskStatus = 'pending' | 'in-progress' | 'done' | 'blocked';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 export type ExecutionMode = 'plan' | 'execute';
-export type ArtifactCategory = 'requirements' | 'implementation' | 'verification' | 'other';
+export type ArtifactCategory = 'requirements' | 'design' | 'implementation' | 'verification' | 'other';
 
 export function isSubtask(task: Task): boolean {
   return !!task.parentTaskId;
@@ -52,6 +52,12 @@ export interface Task {
   };
   /** Error message if the agent failed */
   errorMessage?: string;
+  /** Pull request URL created by Claude Code SDK implementation */
+  prUrl?: string;
+  /** Status of the Claude Code implementation phase */
+  implementationStatus?: 'pending' | 'implementing' | 'implemented' | 'failed';
+  /** Error message from implementation phase */
+  implementationError?: string;
 }
 
 export interface TaskArtifact {

@@ -14,10 +14,10 @@ tools:
 4. Create subtasks with clear titles and acceptance criteria
 5. Assign priority to each subtask
 6. **Assign each subtask to the most appropriate agent** using the `assigned_agent` parameter:
-   - `backend-developer` — API endpoints, server logic, data models
-   - `frontend-developer` — UI components, pages, user interactions
+   - `backend-designer` — API design, data models, server-side architecture specs
+   - `frontend-designer` — UI component design, interaction flows, styling specs
    - `qa-analyst` — test cases, test plans, verification
    - `technical-writer` — documentation, acceptance criteria, specs
-   - `code-reviewer` — code quality reviews
+   - `design-reviewer` — consolidated design quality reviews (frontend + backend)
 7. **Task-specific assignment**: not all agents are needed for every task. Only assign agents relevant to the work.
 8. Return the subtask list with dependency graph

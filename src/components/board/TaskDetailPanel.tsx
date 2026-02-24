@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, User, Clock, Tag, FileText, GitBranch, ArrowUpRight, ChevronDown, ChevronRight, Activity, AlertTriangle, Zap } from 'lucide-react';
+import { X, User, Clock, Tag, FileText, GitBranch, ArrowUpRight, ChevronDown, ChevronRight, Activity, AlertTriangle, Zap, Rocket, Loader2, ExternalLink } from 'lucide-react';
 import type { Task, TaskStatus, TaskArtifact, ArtifactCategory, IterationRecord } from '@/types/task';
 import { STATUS_COLORS } from '@/lib/agentic/task-transitions';
 import { StatusTransitionButtons } from './StatusTransitionButtons';
@@ -25,6 +25,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const CATEGORY_LABELS: Record<ArtifactCategory, string> = {
   requirements: 'Requirements',
+  design: 'Design',
   implementation: 'Implementation',
   verification: 'Verification',
   other: 'Other',
@@ -32,16 +33,19 @@ const CATEGORY_LABELS: Record<ArtifactCategory, string> = {
 
 const CATEGORY_COLORS: Record<string, string> = {
   requirements: 'var(--accent-blue)',
+  design: 'var(--accent-violet)',
   implementation: 'var(--accent-amber)',
   verification: 'var(--accent-green)',
   other: 'var(--text-muted)',
 };
 
-const CATEGORY_ORDER: ArtifactCategory[] = ['requirements', 'implementation', 'verification', 'other'];
+const CATEGORY_ORDER: ArtifactCategory[] = ['requirements', 'design', 'implementation', 'verification', 'other'];
 
 export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSelectTask }: TaskDetailPanelProps) {
   const [viewingArtifact, setViewingArtifact] = useState<TaskArtifact | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [implementing, setImplementing] = useState(false);
+  const [implementError, setImplementError] = useState<string | null>(null);
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -62,9 +66,32 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
   const subtasks = allTasks.filter(t => t.parentTaskId === task.id);
   const artifacts = task.artifacts || [];
 
+  const hasDesignArtifacts = artifacts.some(a => a.category === 'design');
+  const canImplement = !task.parentTaskId
+    && task.status === 'review'
+    && hasDesignArtifacts
+    && (!task.implementationStatus || task.implementationStatus === 'failed');
+
+  async function handleImplement() {
+    setImplementing(true);
+    setImplementError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/implement`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setImplementError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImplementing(false);
+    }
+  }
+
   // Group artifacts by category
   const groupedArtifacts: Record<ArtifactCategory, TaskArtifact[]> = {
     requirements: [],
+    design: [],
     implementation: [],
     verification: [],
     other: [],
@@ -152,6 +179,76 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
                 Move Task
               </div>
               <StatusTransitionButtons task={task} onStatusChange={onStatusChange} subtasks={subtasks} />
+              {/* Implement Button — for parent tasks in review with design artifacts */}
+              {canImplement && (
+                <button
+                  onClick={handleImplement}
+                  disabled={implementing}
+                  className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors"
+                  style={{
+                    background: implementing ? 'var(--bg-tertiary)' : 'var(--accent-violet)',
+                    color: implementing ? 'var(--text-muted)' : 'white',
+                    opacity: implementing ? 0.7 : 1,
+                  }}
+                >
+                  {implementing ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
+                  {implementing ? 'Starting Implementation...' : 'Implement'}
+                </button>
+              )}
+              {implementError && (
+                <div className="mt-1 text-[10px] p-2 rounded" style={{ background: 'rgba(248, 113, 113, 0.1)', color: 'var(--accent-red)' }}>
+                  {implementError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Implementation Status */}
+          {task.implementationStatus && (
+            <div>
+              <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+                Implementation
+              </div>
+              {task.implementationStatus === 'implementing' && (
+                <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
+                  <Loader2 size={12} className="animate-spin" style={{ color: 'var(--accent-violet)' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--accent-violet)' }}>Implementation in progress...</span>
+                </div>
+              )}
+              {task.implementationStatus === 'implemented' && task.prUrl && (
+                <a
+                  href={task.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 p-2 rounded transition-colors"
+                  style={{ background: 'rgba(34, 197, 94, 0.1)' }}
+                >
+                  <GitBranch size={12} style={{ color: 'var(--accent-green)' }} />
+                  <span className="text-[11px] flex-1 truncate" style={{ color: 'var(--accent-green)' }}>
+                    Pull Request
+                  </span>
+                  <ExternalLink size={10} style={{ color: 'var(--accent-green)' }} />
+                </a>
+              )}
+              {task.implementationStatus === 'implemented' && !task.prUrl && (
+                <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                  <GitBranch size={12} style={{ color: 'var(--accent-green)' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--accent-green)' }}>Implementation completed</span>
+                </div>
+              )}
+              {task.implementationStatus === 'failed' && (
+                <div className="p-2 rounded" style={{ background: 'rgba(248, 113, 113, 0.1)' }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <AlertTriangle size={10} style={{ color: 'var(--accent-red)' }} />
+                    <span className="text-[10px] font-semibold" style={{ color: 'var(--accent-red)' }}>Implementation Failed</span>
+                  </div>
+                  {task.implementationError && (
+                    <div className="text-[10px] whitespace-pre-wrap" style={{ color: 'var(--accent-red)' }}>
+                      {task.implementationError}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
