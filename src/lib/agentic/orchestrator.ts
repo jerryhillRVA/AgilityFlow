@@ -12,10 +12,11 @@ import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NS, paths } from './fs-paths';
 import { v4 as uuid } from 'uuid';
 import { initializeConnectors } from './connectors/startup';
+import { implementTask as runImplementation } from './implementer';
 import { log } from './logger';
 
-/** Agents that are expected to produce implementation artifacts */
-const CODING_AGENTS = ['backend-developer', 'frontend-developer'];
+/** Agents that are expected to produce design artifacts */
+const DESIGN_AGENTS = ['backend-designer', 'frontend-designer'];
 
 /** All task status directories in the Agentic FS */
 const ALL_TASK_STATUSES: TaskStatus[] = [
@@ -25,10 +26,10 @@ const ALL_TASK_STATUSES: TaskStatus[] = [
 /** Maps agent roles to artifact categories */
 const AGENT_CATEGORY_MAP: Record<string, ArtifactCategory> = {
   'technical-writer': 'requirements',
-  'backend-developer': 'implementation',
-  'frontend-developer': 'implementation',
+  'backend-designer': 'design',
+  'frontend-designer': 'design',
   'qa-analyst': 'verification',
-  'code-reviewer': 'verification',
+  'design-reviewer': 'verification',
 };
 
 export class Orchestrator {
@@ -340,8 +341,8 @@ export class Orchestrator {
 
       // Validate coding agents produced artifacts
       const artifactCount = task.artifacts?.length || 0;
-      if (CODING_AGENTS.includes(task.assignedAgent!) && artifactCount === 0) {
-        log.warn('orchestrator', `Coding agent "${task.assignedAgent}" completed with ZERO artifacts for "${task.title}"`, { taskId: task.id });
+      if (DESIGN_AGENTS.includes(task.assignedAgent!) && artifactCount === 0) {
+        log.warn('orchestrator', `Design agent "${task.assignedAgent}" completed with ZERO artifacts for "${task.title}"`, { taskId: task.id });
         this.updateTaskStatus(task.id, 'blocked');
         task.errorMessage = `Agent ${task.assignedAgent} completed execution but produced no artifacts.`;
       } else {
@@ -604,7 +605,7 @@ export class Orchestrator {
         await this.runDocumentationGeneration(task);
         break;
       case 'todo->in-progress':
-        await this.runImplementation(task);
+        await this.runDesignExecution(task);
         break;
       case 'review->done':
         this.cascadeSubtasksToDone(task);
@@ -651,7 +652,7 @@ export class Orchestrator {
    * Triggered on todo→in-progress: runs all pending subtasks in sequential waves.
    * Uses WaveExecutor for ordered execution based on executionOrder.
    */
-  private async runImplementation(task: Task): Promise<void> {
+  private async runDesignExecution(task: Task): Promise<void> {
     const subtasks = this.getSubtasks(task.id);
     if (subtasks.length === 0) return;
 
@@ -727,6 +728,76 @@ export class Orchestrator {
 
   getTasksByStatus(status: TaskStatus): Task[] {
     return this.getTasks().filter(t => t.status === status);
+  }
+
+  /**
+   * Trigger Claude Code SDK implementation for a task's design artifacts.
+   * Runs asynchronously — call this method without awaiting.
+   */
+  async implementTask(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      log.error('orchestrator', `implementTask: task not found: ${taskId}`);
+      return;
+    }
+
+    // Set status to implementing
+    task.implementationStatus = 'implementing';
+    task.implementationError = undefined;
+    this.persistTaskUpdate(task).catch(() => {});
+
+    eventBus.emit(createEvent(
+      'implementation:started',
+      `Implementation queued for "${task.title}"`,
+      { taskId },
+      'orchestrator',
+      taskId,
+    ));
+
+    try {
+      const result = await runImplementation(task);
+
+      if (result.success) {
+        task.implementationStatus = 'implemented';
+        task.prUrl = result.prUrl;
+        task.implementationError = undefined;
+        log.info('orchestrator', `Implementation succeeded for "${task.title}" — PR: ${result.prUrl}`);
+
+        eventBus.emit(createEvent(
+          'implementation:completed',
+          `Implementation completed for "${task.title}"`,
+          { taskId, prUrl: result.prUrl, branchName: result.branchName },
+          'orchestrator',
+          taskId,
+        ));
+      } else {
+        task.implementationStatus = 'failed';
+        task.implementationError = result.error || 'Unknown error';
+        log.error('orchestrator', `Implementation failed for "${task.title}": ${result.error}`);
+
+        eventBus.emit(createEvent(
+          'implementation:failed',
+          `Implementation failed for "${task.title}": ${result.error}`,
+          { taskId, error: result.error },
+          'orchestrator',
+          taskId,
+        ));
+      }
+    } catch (err) {
+      task.implementationStatus = 'failed';
+      task.implementationError = String(err);
+      log.error('orchestrator', `Implementation threw for "${task.title}": ${err}`);
+
+      eventBus.emit(createEvent(
+        'implementation:failed',
+        `Implementation failed for "${task.title}": ${err}`,
+        { taskId, error: String(err) },
+        'orchestrator',
+        taskId,
+      ));
+    }
+
+    this.persistTaskUpdate(task).catch(() => {});
   }
 }
 

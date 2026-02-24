@@ -21,7 +21,7 @@ const REWOO_OUTPUT_FORMAT = `---
 
 Produce your artifacts as structured output. For each artifact:
 
-1. Start with a line: <<<ARTIFACT filename="your-filename.md" category="requirements|implementation|verification|other">>>
+1. Start with a line: <<<ARTIFACT filename="your-filename.md" category="requirements|design|implementation|verification|other">>>
 2. Write the complete artifact content
 3. End with a line: <<<END_ARTIFACT>>>
 

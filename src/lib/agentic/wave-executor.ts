@@ -9,8 +9,8 @@ import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
 import { log } from './logger';
 
-/** Agents that are expected to produce implementation artifacts */
-const CODING_AGENTS = ['backend-developer', 'frontend-developer'];
+/** Agents that are expected to produce design artifacts */
+const DESIGN_AGENTS = ['backend-designer', 'frontend-designer'];
 
 interface WaveGroup {
   waveNumber: number;
@@ -27,11 +27,11 @@ interface WaveGroup {
  */
 export class WaveExecutor {
   /** Role-based iteration budget for the ReAct fallback tier.
-   *  Coding agents need more headroom: ask(1) + read/search(1-2) + write artifacts(1-2) + max_tokens retry(1-2). */
+   *  Design agents need more headroom: ask(1) + read/search(1-2) + write artifacts(1-2) + max_tokens retry(1-2). */
   private static readonly ITERATION_BUDGET: Record<string, number> = {
-    'backend-developer': 10,
-    'frontend-developer': 10,
-    'code-reviewer': 8,
+    'backend-designer': 10,
+    'frontend-designer': 10,
+    'design-reviewer': 8,
     'qa-analyst': 8,
     'technical-writer': 8,
   };
@@ -144,8 +144,8 @@ export class WaveExecutor {
       // Validate artifact output before marking done
       const artifactCount = subtask.artifacts?.length || 0;
 
-      if (CODING_AGENTS.includes(agentId) && artifactCount === 0) {
-        log.warn('wave-executor', `Coding agent "${agentId}" completed with ZERO artifacts for "${subtask.title}"`, {
+      if (DESIGN_AGENTS.includes(agentId) && artifactCount === 0) {
+        log.warn('wave-executor', `Design agent "${agentId}" completed with ZERO artifacts for "${subtask.title}"`, {
           subtaskId: subtask.id,
           agentId,
         });

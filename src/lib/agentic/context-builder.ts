@@ -5,11 +5,11 @@ import { log } from './logger';
 
 /** Maps agent roles to the artifact categories they need as context */
 const AGENT_CATEGORY_MAP: Record<string, ArtifactCategory[]> = {
-  'technical-writer': ['requirements', 'implementation', 'verification'],
-  'backend-developer': ['requirements', 'implementation'],
-  'frontend-developer': ['requirements', 'implementation'],
-  'qa-analyst': ['requirements', 'implementation'],
-  'code-reviewer': ['implementation', 'verification'],
+  'technical-writer': ['requirements', 'design', 'verification'],
+  'backend-designer': ['requirements', 'design'],
+  'frontend-designer': ['requirements', 'design'],
+  'qa-analyst': ['requirements', 'design'],
+  'design-reviewer': ['design', 'verification'],
 };
 
 const MAX_ARTIFACT_CHARS = 2000;
@@ -30,7 +30,7 @@ export async function buildAgentContext(
   parts.push(`## Task\n${task.title}\n\n${task.description}`);
 
   // 2. Prior artifacts filtered by role relevance
-  const relevantCategories = AGENT_CATEGORY_MAP[agentId] || ['requirements', 'implementation', 'verification'];
+  const relevantCategories = AGENT_CATEGORY_MAP[agentId] || ['requirements', 'design', 'verification'];
   const relevant = priorArtifacts.filter(a => relevantCategories.includes(a.category));
 
   if (relevant.length > 0) {

@@ -12,6 +12,7 @@ interface ArtifactViewerModalProps {
 
 const CATEGORY_COLORS: Record<string, string> = {
   requirements: 'var(--accent-blue)',
+  design: 'var(--accent-violet)',
   implementation: 'var(--accent-amber)',
   verification: 'var(--accent-green)',
   other: 'var(--text-muted)',

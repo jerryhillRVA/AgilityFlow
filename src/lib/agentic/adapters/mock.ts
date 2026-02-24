@@ -17,8 +17,8 @@ export class MockAdapter implements ModelAdapter {
     const isPlanMode = request.systemPrompt.includes('PLAN ONLY') || userMsg.includes('PLAN ONLY');
     const isTechnicalWriter = systemPrompt.includes('technical writer');
     const isQAAnalyst = systemPrompt.includes('qa analyst') || systemPrompt.includes('qa specialist');
-    const isDeveloper = systemPrompt.includes('backend') || systemPrompt.includes('frontend');
-    const isCodeReviewer = systemPrompt.includes('code reviewer') || systemPrompt.includes('review code');
+    const isDesigner = systemPrompt.includes('designer') || systemPrompt.includes('design specialist');
+    const isDesignReviewer = systemPrompt.includes('design reviewer') || systemPrompt.includes('review') && systemPrompt.includes('design artifacts');
 
     // Detect if this is the first call in a conversation (no tool_result messages yet)
     const hasToolResults = request.messages.some(
@@ -28,7 +28,7 @@ export class MockAdapter implements ModelAdapter {
 
     // ReWOO single-shot mode: return artifacts in delimited format (no tools)
     if (isReWOO) {
-      return this.simulateReWOOResponse(userMsg, isTechnicalWriter, isQAAnalyst, isDeveloper, isCodeReviewer);
+      return this.simulateReWOOResponse(userMsg, isTechnicalWriter, isQAAnalyst, isDesigner, isDesignReviewer);
     }
 
     // Orchestrator in plan mode: create subtasks instead of delegating
@@ -54,15 +54,15 @@ export class MockAdapter implements ModelAdapter {
       return this.simulateTestCaseGeneration(userMsg);
     }
 
-    // Developer agents: create implementation artifacts
-    if (isDeveloper && hasTools && isFirstCall) {
+    // Designer agents: create design artifacts
+    if (isDesigner && hasTools && isFirstCall) {
       const isBackend = systemPrompt.includes('backend');
-      return this.simulateImplementationArtifact(userMsg, isBackend);
+      return this.simulateDesignArtifact(userMsg, isBackend);
     }
 
-    // Code Reviewer: create verification artifacts
-    if (isCodeReviewer && hasTools && isFirstCall) {
-      return this.simulateReviewArtifact(userMsg);
+    // Design Reviewer: create verification artifacts
+    if (isDesignReviewer && hasTools && isFirstCall) {
+      return this.simulateDesignReviewArtifact(userMsg);
     }
 
     // Default: return a text response (second call or unknown agent)
@@ -103,10 +103,10 @@ export class MockAdapter implements ModelAdapter {
           id: `toolu_${uuid().slice(0, 12)}`,
           name: 'create_subtask',
           input: {
-            title: `Implement: ${taskTitle}`,
-            description: `Implement the core functionality as described in the task requirements. Follow project conventions and create implementation artifacts.`,
+            title: `Design API and data models for: ${taskTitle}`,
+            description: `Design the API endpoints, data models, and server-side architecture. Produce detailed design specifications as artifacts.`,
             priority: 'medium',
-            assigned_agent: 'backend-developer',
+            assigned_agent: 'backend-designer',
             execution_order: 2,
           },
         },
@@ -115,10 +115,22 @@ export class MockAdapter implements ModelAdapter {
           id: `toolu_${uuid().slice(0, 12)}`,
           name: 'create_subtask',
           input: {
-            title: `Review implementation for: ${taskTitle}`,
-            description: `Review all implementation artifacts for code quality, security, maintainability, and correctness. Create a review report with findings.`,
+            title: `Design UI components for: ${taskTitle}`,
+            description: `Design the UI component architecture, state management, styling, and interaction flows. Produce detailed design specifications as artifacts.`,
+            priority: 'medium',
+            assigned_agent: 'frontend-designer',
+            execution_order: 2,
+          },
+        },
+        {
+          type: 'tool_use',
+          id: `toolu_${uuid().slice(0, 12)}`,
+          name: 'create_subtask',
+          input: {
+            title: `Review designs for: ${taskTitle}`,
+            description: `Review all frontend and backend design artifacts for completeness, consistency, feasibility, and standards compliance. Create a consolidated design review report.`,
             priority: 'low',
-            assigned_agent: 'code-reviewer',
+            assigned_agent: 'design-reviewer',
             execution_order: 3,
           },
         },
@@ -132,14 +144,14 @@ export class MockAdapter implements ModelAdapter {
     const toolCallId = `toolu_${uuid().slice(0, 12)}`;
     return {
       content: [
-        { type: 'text', text: `Analyzing task: "${userMsg.slice(0, 100)}..."\n\nI'll delegate this to the backend developer for implementation.` },
+        { type: 'text', text: `Analyzing task: "${userMsg.slice(0, 100)}..."\n\nI'll delegate this to the backend designer for design specifications.` },
         {
           type: 'tool_use',
           id: toolCallId,
           name: 'delegate_to_agent',
           input: {
-            agent_id: 'backend-developer',
-            task_title: `Implement: ${userMsg.slice(0, 50)}`,
+            agent_id: 'backend-designer',
+            task_title: `Design: ${userMsg.slice(0, 50)}`,
             task_description: userMsg,
             priority: 'medium',
           },
@@ -208,17 +220,17 @@ export class MockAdapter implements ModelAdapter {
     };
   }
 
-  private simulateImplementationArtifact(userMsg: string, isBackend: boolean): ModelResponse {
+  private simulateDesignArtifact(userMsg: string, isBackend: boolean): ModelResponse {
     const taskRef = userMsg.slice(0, 50);
     const agentType = isBackend ? 'Backend' : 'Frontend';
-    const filename = isBackend ? 'api-implementation.md' : 'ui-implementation.md';
+    const filename = isBackend ? 'api-design-spec.md' : 'ui-design-spec.md';
     const content = isBackend
-      ? `# API Implementation\n\n## Task: ${taskRef}\n\n### Endpoint Design\n\n\`\`\`\nPATCH /api/resource/:id\nBody: { field: value }\nResponse: { id, field, updatedAt }\n\`\`\`\n\n### Data Model\n\n\`\`\`typescript\ninterface Resource {\n  id: string;\n  field: string;\n  updatedAt: string;\n}\n\`\`\`\n\n### Implementation Notes\n- Uses NextResponse.json() for responses\n- Validates input before processing\n- Emits events on state changes\n- Persists to Agentic FS\n`
-      : `# UI Implementation\n\n## Task: ${taskRef}\n\n### Component Structure\n\n\`\`\`\nResourceView\n  ├── ResourceHeader\n  ├── ResourceContent\n  └── ResourceActions\n\`\`\`\n\n### Implementation Notes\n- React functional components with hooks\n- Tailwind CSS for styling\n- Responsive design with mobile-first approach\n- Error boundaries for graceful error handling\n`;
+      ? `# API Design Specification\n\n## Task: ${taskRef}\n\n### Endpoint Contracts\n\n| Method | Path | Request Body | Response | Status |\n|--------|------|-------------|----------|--------|\n| PATCH | /api/resource/:id | \`{ field: string }\` | \`{ id, field, updatedAt }\` | 200 |\n| POST | /api/resource | \`{ field: string }\` | \`{ id, field, createdAt }\` | 201 |\n| GET | /api/resource/:id | — | \`{ id, field, updatedAt }\` | 200 |\n\n### Data Models\n\n\`\`\`typescript\ninterface Resource {\n  id: string;\n  field: string;\n  createdAt: string;\n  updatedAt: string;\n}\n\`\`\`\n\n### Error Handling Strategy\n- 400 for validation errors with \`{ error: string }\` body\n- 404 when resource not found\n- 500 with generic error message for internal errors\n\n### Integration Points\n- Persists to Agentic FS \`artifacts\` namespace\n- Emits events via event bus on state changes\n- Uses NextResponse.json() for all responses\n`
+      : `# UI Design Specification\n\n## Task: ${taskRef}\n\n### Component Hierarchy\n\n\`\`\`\nResourceView\n  ├── ResourceHeader (props: title, status)\n  ├── ResourceContent (props: data, loading)\n  │   ├── ContentSection\n  │   └── LoadingPlaceholder\n  └── ResourceActions (props: onSave, onCancel, disabled)\n\`\`\`\n\n### Props Interfaces\n\n\`\`\`typescript\ninterface ResourceViewProps {\n  resourceId: string;\n  onClose: () => void;\n}\n\ninterface ResourceHeaderProps {\n  title: string;\n  status: 'active' | 'archived';\n}\n\`\`\`\n\n### State Management\n- Local state via useState for form data and loading\n- useEffect for initial data fetch\n- useCallback for memoized handlers\n\n### Styling Specifications\n- Container: \`bg-secondary\`, \`rounded-lg\`, \`border border-[var(--border)]\`\n- Header: \`text-sm font-semibold\`, color \`var(--text-primary)\`\n- Responsive: stack on mobile (< 640px), side-by-side on desktop\n\n### Interaction Flows\n1. User opens view → loading state → data renders\n2. User edits field → local state update → save button enables\n3. User saves → loading → success toast → view updates\n\n### Accessibility\n- All interactive elements have aria-labels\n- Keyboard navigation: Tab through actions, Enter to submit\n- Focus trap within modal if applicable\n`;
 
     return {
       content: [
-        { type: 'text', text: `${agentType} implementation for: "${taskRef}..."` },
+        { type: 'text', text: `${agentType} design specification for: "${taskRef}..."` },
         {
           type: 'tool_use',
           id: `toolu_${uuid().slice(0, 12)}`,
@@ -227,8 +239,8 @@ export class MockAdapter implements ModelAdapter {
             filename,
             content,
             namespace: 'artifacts',
-            path: 'code',
-            category: 'implementation',
+            path: 'designs',
+            category: 'design',
           },
         },
       ],
@@ -237,18 +249,18 @@ export class MockAdapter implements ModelAdapter {
     };
   }
 
-  private simulateReviewArtifact(userMsg: string): ModelResponse {
+  private simulateDesignReviewArtifact(userMsg: string): ModelResponse {
     const taskRef = userMsg.slice(0, 50);
     return {
       content: [
-        { type: 'text', text: `Reviewing implementation for: "${taskRef}..."` },
+        { type: 'text', text: `Reviewing designs for: "${taskRef}..."` },
         {
           type: 'tool_use',
           id: `toolu_${uuid().slice(0, 12)}`,
           name: 'agentic_fs_write',
           input: {
-            filename: 'code-review-report.md',
-            content: `# Code Review Report\n\n## Task: ${taskRef}\n\n### Summary\nOverall: **Pass** with minor suggestions\n\n### Evaluation\n\n| Criteria | Rating | Notes |\n|----------|--------|-------|\n| Correctness | Pass | Implementation matches requirements |\n| Security | Pass | No vulnerabilities identified |\n| Maintainability | Pass | Code is clear and well-structured |\n| Performance | Pass | No obvious bottlenecks |\n\n### Suggestions\n- Consider adding error boundary for edge cases\n- Unit test coverage could be expanded\n\n### Verdict\n**Approved** — ready for final review.\n`,
+            filename: 'design-review-report.md',
+            content: `# Design Review Report\n\n## Task: ${taskRef}\n\n### Summary\nConsolidated review of frontend and backend design artifacts.\nOverall: **Pass** with minor suggestions\n\n### Evaluation\n\n| Criteria | Rating | Notes |\n|----------|--------|-------|\n| Completeness | Pass | All required components and endpoints specified |\n| Consistency | Pass | Frontend and backend designs align on API contracts |\n| Feasibility | Pass | Implementable with current Next.js + TypeScript stack |\n| Standards | Pass | Follows project naming conventions and patterns |\n\n### Cross-Design Consistency\n- API response shapes match frontend expected data structures\n- Error handling approaches consistent across frontend and backend\n- Naming conventions aligned between designs\n\n### Suggestions\n- Consider adding optimistic UI updates for better UX\n- Backend could benefit from input validation middleware pattern\n\n### Verdict\n**Approved** — designs are ready for implementation.\n`,
             namespace: 'artifacts',
             path: 'reviews',
             category: 'verification',
@@ -278,8 +290,8 @@ export class MockAdapter implements ModelAdapter {
     userMsg: string,
     isTechnicalWriter: boolean,
     isQAAnalyst: boolean,
-    isDeveloper: boolean,
-    isCodeReviewer: boolean,
+    isDesigner: boolean,
+    isDesignReviewer: boolean,
   ): ModelResponse {
     const taskRef = userMsg.slice(0, 50);
     let artifactText: string;
@@ -331,42 +343,51 @@ export class MockAdapter implements ModelAdapter {
         '',
         'Test case artifacts generated successfully.',
       ].join('\n');
-    } else if (isDeveloper) {
+    } else if (isDesigner) {
       const isBackend = userMsg.toLowerCase().includes('backend') || userMsg.toLowerCase().includes('api');
-      const filename = isBackend ? 'api-implementation.md' : 'ui-implementation.md';
+      const filename = isBackend ? 'api-design-spec.md' : 'ui-design-spec.md';
       artifactText = [
-        `Implementing "${taskRef}..."`,
+        `Designing "${taskRef}..."`,
         '',
-        `<<<ARTIFACT filename="${filename}" category="implementation">>>`,
-        `# ${isBackend ? 'API' : 'UI'} Implementation`,
+        `<<<ARTIFACT filename="${filename}" category="design">>>`,
+        `# ${isBackend ? 'API' : 'UI'} Design Specification`,
         ``,
         `## Task: ${taskRef}`,
         ``,
-        `### Implementation Notes`,
-        `- Follows project conventions`,
-        `- TypeScript strict mode`,
-        `- Error handling included`,
+        `### Design Overview`,
+        `- Component architecture and contracts defined`,
+        `- State management approach specified`,
+        `- Interaction flows documented`,
+        `- Accessibility requirements included`,
         `<<<END_ARTIFACT>>>`,
         '',
-        'Implementation artifacts generated successfully.',
+        'Design artifacts generated successfully.',
       ].join('\n');
-    } else if (isCodeReviewer) {
+    } else if (isDesignReviewer) {
       artifactText = [
-        `Reviewing "${taskRef}..."`,
+        `Reviewing designs for "${taskRef}..."`,
         '',
-        `<<<ARTIFACT filename="code-review-report.md" category="verification">>>`,
-        `# Code Review Report`,
+        `<<<ARTIFACT filename="design-review-report.md" category="verification">>>`,
+        `# Design Review Report`,
         ``,
         `## Task: ${taskRef}`,
         ``,
         `### Summary`,
-        `Overall: **Pass** with minor suggestions`,
+        `Overall: **Pass** — designs are complete and consistent`,
+        ``,
+        `### Evaluation`,
+        `| Criteria | Rating |`,
+        `|----------|--------|`,
+        `| Completeness | Pass |`,
+        `| Consistency | Pass |`,
+        `| Feasibility | Pass |`,
+        `| Standards | Pass |`,
         ``,
         `### Verdict`,
-        `**Approved** — ready for final review.`,
+        `**Approved** — designs are ready for implementation.`,
         `<<<END_ARTIFACT>>>`,
         '',
-        'Review artifacts generated successfully.',
+        'Design review artifacts generated successfully.',
       ].join('\n');
     } else {
       artifactText = [

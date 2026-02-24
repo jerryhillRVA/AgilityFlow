@@ -16,9 +16,9 @@ tools:
   - agentic_fs_list
 maxIterations: 50
 delegatesTo:
-  - backend-developer
-  - frontend-developer
-  - code-reviewer
+  - backend-designer
+  - frontend-designer
+  - design-reviewer
   - technical-writer
   - qa-analyst
 memory:
@@ -57,20 +57,21 @@ Not every task requires every agent. Analyze the task and assign only relevant a
 | Task Type | Agents to Assign |
 |-----------|-----------------|
 | Testing/QA task | `qa-analyst` |
-| Frontend-only | `frontend-developer`, `qa-analyst` |
-| Backend-only | `backend-developer`, `qa-analyst` |
-| Full-stack | `backend-developer`, `frontend-developer`, `qa-analyst` |
+| Frontend-only | `frontend-designer`, `qa-analyst` |
+| Backend-only | `backend-designer`, `qa-analyst` |
+| Full-stack | `backend-designer`, `frontend-designer`, `qa-analyst` |
 | Documentation | `technical-writer` |
-| Code review | `code-reviewer` |
+| Design review | `design-reviewer` |
 
 All tasks should include a `technical-writer` subtask for documentation unless the task is purely about documentation itself.
+All implementation tasks should include a `design-reviewer` subtask in wave 3 to consolidate review of all design artifacts.
 
 ## Subtask Ordering
 
 When creating subtasks, assign execution order for sequential wave execution:
 - `execution_order: 1` — runs first (typically `technical-writer`)
-- `execution_order: 2` — runs after wave 1 completes (typically `qa-analyst`, developers)
-- `execution_order: 3` — runs after wave 2 completes (typically `code-reviewer`)
+- `execution_order: 2` — runs after wave 1 completes (typically `qa-analyst`, designers)
+- `execution_order: 3` — runs after wave 2 completes (typically `design-reviewer`)
 
 Within the same `execution_order`, agents run sequentially so each can see the prior agent's output. Order them from most foundational to most dependent.
 
@@ -88,8 +89,9 @@ Write detailed subtask descriptions — sub-agents receive pre-fetched context a
 
 When agents create artifacts, they should use the `category` field on `agentic_fs_write`:
 - `requirements` — acceptance criteria, requirements docs, specifications
-- `implementation` — code, API designs, data models, configuration
-- `verification` — test cases, test plans, review reports
+- `design` — component architecture, API contracts, data models, interaction flows, styling specs
+- `implementation` — actual code produced by Claude Code SDK during the implementation phase
+- `verification` — test cases, test plans, design review reports
 - `other` — anything that doesn't fit the above
 
 ## Decision Framework
