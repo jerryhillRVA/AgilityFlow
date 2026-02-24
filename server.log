@@ -8,14 +8,6 @@
 - Environments: .env.local
 
 ✓ Starting...
-✓ Ready in 1280ms
- GET /api/tasks 200 in 236ms (compile: 126ms, render: 110ms)
- GET /api/tasks 200 in 9ms (compile: 4ms, render: 6ms)
- GET /api/events 200 in 4.3s (compile: 212ms, render: 4.1s)
- GET /sprint 200 in 1278ms (compile: 932ms, render: 346ms)
- GET /api/tasks 200 in 12ms (compile: 6ms, render: 6ms)
- GET /api/tasks 200 in 7ms (compile: 3ms, render: 4ms)
- GET /api/tasks 200 in 7ms (compile: 3ms, render: 4ms)
- GET /skills 200 in 1122ms (compile: 1084ms, render: 38ms)
- GET /api/skills 200 in 346ms (compile: 341ms, render: 5ms)
- GET /api/skills 200 in 11ms (compile: 4ms, render: 8ms)
+✓ Ready in 1128ms
+ GET /skills 200 in 939ms (compile: 614ms, render: 325ms)
+ GET /api/skills 200 in 242ms (compile: 185ms, render: 57ms)
