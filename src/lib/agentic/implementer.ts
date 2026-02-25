@@ -159,12 +159,13 @@ interface CLIResult {
 /**
  * Run Claude Code CLI with GitHub authentication.
  *
- * Sets up auth before spawning:
+ * Sets up auth and repo state before spawning:
  * 1. Retrieves decrypted GitHub PAT from settings
- * 2. Sets GH_TOKEN env var for `gh pr create` inside Claude Code
- * 3. Temporarily injects PAT into the git remote URL for `git push`
- * 4. Spawns Claude Code CLI via `spawnClaudeCode()`
- * 5. Cleans up: resets git remote URL to strip PAT (guaranteed via `finally`)
+ * 2. Temporarily injects PAT into the git remote URL for `git push`
+ * 3. Fetches latest and resets to origin/{branch} so we always branch from latest
+ * 4. Sets GH_TOKEN env var for `gh pr create` inside Claude Code
+ * 5. Spawns Claude Code CLI via `spawnClaudeCode()`
+ * 6. Cleans up: resets git remote URL to strip PAT (guaranteed via `finally`)
  */
 async function runClaudeCodeCLI(prompt: string, cwd: string, taskId: string): Promise<CLIResult> {
   // --- Auth setup ---
@@ -185,12 +186,19 @@ async function runClaudeCodeCLI(prompt: string, cwd: string, taskId: string): Pr
     );
   }
 
-  // Inject PAT into origin remote so `git push` works inside Claude Code
+  // Inject PAT into origin remote so `git push` and `git fetch` work
   const authedUrl = injectPATIntoUrl(repoUrl, pat);
   await execFileAsync('git', ['-C', cwd, 'remote', 'set-url', 'origin', authedUrl], {
     timeout: 10000,
   });
   log.info('implementer', 'Injected PAT into git remote for push auth');
+
+  // --- Prepare repo: always start from latest origin branch ---
+  const branch = settings.connectors.github.branch || 'main';
+  await execFileAsync('git', ['-C', cwd, 'fetch', 'origin'], { timeout: 60000 });
+  await execFileAsync('git', ['-C', cwd, 'checkout', branch], { timeout: 10000 });
+  await execFileAsync('git', ['-C', cwd, 'reset', '--hard', `origin/${branch}`], { timeout: 10000 });
+  log.info('implementer', `Repo prepared: checked out ${branch} and reset to origin/${branch}`);
 
   try {
     return await spawnClaudeCode(prompt, cwd, taskId, pat);
