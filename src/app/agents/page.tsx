@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AgentDefinition } from '@/types/agent';
+import { AgentDetailPanel } from '@/components/agents/AgentDetailPanel';
 
 const tierColors: Record<string, string> = {
   fast: 'var(--accent-green)',
@@ -11,10 +12,19 @@ const tierColors: Record<string, string> = {
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<AgentDefinition | null>(null);
 
   useEffect(() => {
     fetch('/api/agents').then(r => r.json()).then(setAgents).catch(() => {});
   }, []);
+
+  const handleCardClick = (agent: AgentDefinition) => {
+    setSelectedAgent(agent);
+  };
+
+  const handleClosePanel = () => {
+    setSelectedAgent(null);
+  };
 
   return (
     <div className="max-w-5xl">
@@ -25,8 +35,26 @@ export default function AgentsPage() {
 
       <div className="grid grid-cols-2 gap-4">
         {agents.map(agent => (
-          <div key={agent.id} className="p-5 rounded-lg border"
-            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', borderLeft: `3px solid ${tierColors[agent.tier] || 'var(--border)'}` }}>
+          <div
+            key={agent.id}
+            className="p-5 rounded-lg border cursor-pointer transition-all duration-200"
+            style={{
+              background: 'var(--bg-secondary)',
+              borderColor: selectedAgent?.id === agent.id ? (tierColors[agent.tier] || 'var(--border)') : 'var(--border)',
+              borderLeft: `3px solid ${tierColors[agent.tier] || 'var(--border)'}`,
+              boxShadow: selectedAgent?.id === agent.id ? `0 4px 12px rgba(0,0,0,0.2)` : undefined,
+            }}
+            onClick={() => handleCardClick(agent)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleCardClick(agent);
+              }
+            }}
+            aria-label={`View details for ${agent.name}`}
+          >
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-semibold" style={{ color: tierColors[agent.tier] || 'var(--text-primary)' }}>
                 {agent.name}
@@ -78,6 +106,13 @@ export default function AgentsPage() {
           </div>
         ))}
       </div>
+
+      {selectedAgent && (
+        <AgentDetailPanel
+          agent={selectedAgent}
+          onClose={handleClosePanel}
+        />
+      )}
     </div>
   );
 }
