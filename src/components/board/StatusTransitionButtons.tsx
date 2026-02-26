@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChevronRight, ChevronLeft, Ban, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import type { Task, TaskStatus } from '@/types/task';
-import { getValidTransitions, getTransitionLabel, STATUS_COLORS } from '@/lib/agentic/task-transitions';
+import { useWorkflow } from '@/components/providers/WorkflowProvider';
 
 interface StatusTransitionButtonsProps {
   task: Task;
@@ -20,6 +20,7 @@ const TRANSITION_ICONS: Record<string, typeof ChevronRight> = {
 export function StatusTransitionButtons({ task, onStatusChange, compact, subtasks }: StatusTransitionButtonsProps) {
   const [loading, setLoading] = useState<TaskStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { getValidTransitions, getTransitionLabel, STATUS_COLORS } = useWorkflow();
   const validTransitions = getValidTransitions(task.status);
 
   // Subtask status is agent-managed — no manual transitions

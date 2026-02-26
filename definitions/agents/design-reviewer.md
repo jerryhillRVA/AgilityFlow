@@ -13,6 +13,9 @@ tools:
   - agentic_fs_ask
   - agentic_fs_batch_read
 delegatesTo: []
+artifactCategory: verification
+contextCategories: [design, verification]
+iterationBudget: 8
 ---
 
 # Design Reviewer Agent

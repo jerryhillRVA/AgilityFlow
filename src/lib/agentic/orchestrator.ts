@@ -14,23 +14,7 @@ import { v4 as uuid } from 'uuid';
 import { initializeConnectors } from './connectors/startup';
 import { implementTask as runImplementation } from './implementer';
 import { log } from './logger';
-
-/** Agents that are expected to produce design artifacts */
-const DESIGN_AGENTS = ['backend-designer', 'frontend-designer'];
-
-/** All task status directories in the Agentic FS */
-const ALL_TASK_STATUSES: TaskStatus[] = [
-  'pending', 'backlog', 'todo', 'in-progress', 'review', 'done', 'blocked',
-];
-
-/** Maps agent roles to artifact categories */
-const AGENT_CATEGORY_MAP: Record<string, ArtifactCategory> = {
-  'technical-writer': 'requirements',
-  'backend-designer': 'design',
-  'frontend-designer': 'design',
-  'qa-analyst': 'verification',
-  'design-reviewer': 'verification',
-};
+import { getAllStatusIds, getTransitionAction, getSubtaskInitialStatus, getParentInitialStatus } from './workflow-loader';
 
 export class Orchestrator {
   private registry!: CapabilityRegistry;
@@ -339,9 +323,10 @@ export class Orchestrator {
         iterationDetails: result.usage.iterationDetails,
       };
 
-      // Validate coding agents produced artifacts
+      // Validate agents that require artifacts
       const artifactCount = task.artifacts?.length || 0;
-      if (DESIGN_AGENTS.includes(task.assignedAgent!) && artifactCount === 0) {
+      const agentDef = this.registry.getAgent(task.assignedAgent!);
+      if (agentDef?.requiresArtifacts && artifactCount === 0) {
         log.warn('orchestrator', `Design agent "${task.assignedAgent}" completed with ZERO artifacts for "${task.title}"`, { taskId: task.id });
         this.updateTaskStatus(task.id, 'blocked');
         task.errorMessage = `Agent ${task.assignedAgent} completed execution but produced no artifacts.`;
@@ -399,7 +384,7 @@ export class Orchestrator {
 
       // List all status directories in parallel
       const dirResults = await Promise.allSettled(
-        ALL_TASK_STATUSES.map(status =>
+        getAllStatusIds().map(status =>
           fs.listDirectory(paths.tasks.dir(status), NS.TASKS)
             .then(result => ({ status, entries: result.entries }))
         )
@@ -537,7 +522,9 @@ export class Orchestrator {
       id: uuid(),
       title: params.title,
       description: params.description,
-      status: params.parentTaskId ? 'pending' : 'backlog',
+      status: params.parentTaskId
+        ? getSubtaskInitialStatus()
+        : getParentInitialStatus(),
       priority: params.priority || 'medium',
       executionMode: params.executionMode || 'plan',
       assignedAgent: params.assignedAgent,
@@ -598,91 +585,59 @@ export class Orchestrator {
    * Execute actions triggered by status transitions.
    */
   private async executeTransitionAction(from: TaskStatus, to: TaskStatus, task: Task): Promise<void> {
-    const key = `${from}->${to}`;
+    const actionDef = getTransitionAction(from, to);
+    if (!actionDef) return;
 
-    switch (key) {
-      case 'backlog->todo':
-        await this.runDocumentationGeneration(task);
+    switch (actionDef.action) {
+      case 'run_wave':
+        await this.runFilteredWave(task, actionDef.filter);
         break;
-      case 'todo->in-progress':
-        await this.runDesignExecution(task);
-        break;
-      case 'review->done':
+      case 'cascade_done':
         this.cascadeSubtasksToDone(task);
         break;
     }
   }
 
   /**
-   * Triggered on backlog→todo: runs wave 1 subtasks (typically technical-writer)
-   * to create acceptance criteria and requirements documentation.
+   * Runs a filtered wave based on transition action config.
+   * Replaces the hard-coded runDocumentationGeneration and runDesignExecution methods.
    */
-  private async runDocumentationGeneration(task: Task): Promise<void> {
+  private async runFilteredWave(
+    task: Task,
+    filter?: { status?: string; agents?: string[] },
+  ): Promise<void> {
     const subtasks = this.getSubtasks(task.id);
-    const writerSubtasks = subtasks.filter(s =>
-      s.assignedAgent === 'technical-writer' &&
-      s.status === 'pending'
-    );
+    const targetStatus = filter?.status || 'pending';
+    const agentFilter = filter?.agents;
 
-    if (writerSubtasks.length === 0) return;
-
-    eventBus.emit(createEvent(
-      'task:transition_action',
-      `Generating documentation for "${task.title}" — ${writerSubtasks.length} technical-writer subtask(s) (backlog → todo)`,
-      { taskId: task.id, action: 'documentation_generation', subtaskCount: writerSubtasks.length },
-      'technical-writer',
-      task.id,
-    ));
-
-    const waveExecutor = new WaveExecutor(this.assembler, createAdapter(), this.toolRouter);
-    waveExecutor.executeWaves(
-      task, writerSubtasks,
-      (taskId) => this.createTaskToolRouter(taskId),
-      (subtask) => this.persistTaskUpdate(subtask).catch(() => {}),
-    ).catch((err) => {
-      eventBus.emit(createEvent(
-        'system:error',
-        `Documentation wave error: ${String(err)}`,
-        { error: String(err), taskId: task.id },
-      ));
+    const matching = subtasks.filter(s => {
+      if (s.status !== targetStatus) return false;
+      if (agentFilter && agentFilter.length > 0) {
+        return agentFilter.includes(s.assignedAgent || '');
+      }
+      return true;
     });
-  }
 
-  /**
-   * Triggered on todo→in-progress: runs all pending subtasks in sequential waves.
-   * Uses WaveExecutor for ordered execution based on executionOrder.
-   */
-  private async runDesignExecution(task: Task): Promise<void> {
-    const subtasks = this.getSubtasks(task.id);
-    if (subtasks.length === 0) return;
+    if (matching.length === 0) return;
 
-    // Only delegate subtasks still in pending — skip any already in-progress/done/blocked
-    const pendingSubtasks = subtasks.filter(s =>
-      s.assignedAgent &&
-      this.registry.getAgent(s.assignedAgent) &&
-      s.status === 'pending'
-    );
-
-    if (pendingSubtasks.length === 0) return;
-
+    const filterDesc = agentFilter ? agentFilter.join(', ') : 'all pending';
     eventBus.emit(createEvent(
       'task:transition_action',
-      `Starting implementation for "${task.title}" — ${pendingSubtasks.length} of ${subtasks.length} subtasks (todo → in-progress)`,
-      { taskId: task.id, action: 'implementation', subtaskCount: pendingSubtasks.length },
+      `Running wave for "${task.title}" — ${matching.length} subtask(s) matching [${filterDesc}]`,
+      { taskId: task.id, action: 'run_wave', subtaskCount: matching.length },
       'orchestrator',
       task.id,
     ));
 
-    // Execute subtasks in sequential waves (non-blocking)
     const waveExecutor = new WaveExecutor(this.assembler, createAdapter(), this.toolRouter);
     waveExecutor.executeWaves(
-      task, pendingSubtasks,
+      task, matching,
       (taskId) => this.createTaskToolRouter(taskId),
       (subtask) => this.persistTaskUpdate(subtask).catch(() => {}),
     ).catch((err) => {
       eventBus.emit(createEvent(
         'system:error',
-        `Implementation wave error: ${String(err)}`,
+        `Wave execution error: ${String(err)}`,
         { error: String(err), taskId: task.id },
       ));
     });

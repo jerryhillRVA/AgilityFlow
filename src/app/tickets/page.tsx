@@ -3,34 +3,8 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Ticket, Search, Paperclip, GitBranch } from 'lucide-react';
 import type { Task, TaskStatus } from '@/types/task';
-import { STATUS_COLORS } from '@/lib/agentic/task-transitions';
 import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
-
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: 'var(--accent-red)',
-  high: 'var(--accent-orange)',
-  medium: 'var(--accent-amber)',
-  low: 'var(--accent-green)',
-};
-
-const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'all', label: 'All Statuses' },
-  { value: 'backlog', label: 'Backlog' },
-  { value: 'todo', label: 'To Do' },
-  { value: 'in-progress', label: 'In Progress' },
-  { value: 'review', label: 'Review' },
-  { value: 'done', label: 'Done' },
-  { value: 'blocked', label: 'Blocked' },
-  { value: 'pending', label: 'Pending' },
-];
-
-const PRIORITY_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'all', label: 'All Priorities' },
-  { value: 'critical', label: 'Critical' },
-  { value: 'high', label: 'High' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
-];
+import { useWorkflow } from '@/components/providers/WorkflowProvider';
 
 export default function TicketsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -40,6 +14,19 @@ export default function TicketsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const selectedTaskRef = useRef<Task | null>(null);
+  const { STATUS_COLORS, getPriorityColor, config } = useWorkflow();
+
+  const STATUS_OPTIONS = useMemo(() => [
+    { value: 'all', label: 'All Statuses' },
+    ...Object.entries(config.statuses).map(([id, cfg]) => ({ value: id, label: cfg.label })),
+  ], [config.statuses]);
+
+  const PRIORITY_OPTIONS = useMemo(() => [
+    { value: 'all', label: 'All Priorities' },
+    ...Object.entries(config.priorities)
+      .sort(([, a], [, b]) => a.order - b.order)
+      .map(([id]) => ({ value: id, label: id.charAt(0).toUpperCase() + id.slice(1) })),
+  ], [config.priorities]);
 
   // Keep ref in sync so the stable fetchTasks can read it without re-creating
   useEffect(() => {
@@ -307,8 +294,8 @@ export default function TicketsPage() {
                     <span
                       className="px-1.5 py-0.5 rounded text-[9px] font-medium"
                       style={{
-                        background: `${PRIORITY_COLORS[task.priority] || 'var(--accent-amber)'}15`,
-                        color: PRIORITY_COLORS[task.priority] || 'var(--accent-amber)',
+                        background: `${getPriorityColor(task.priority)}15`,
+                        color: getPriorityColor(task.priority),
                       }}
                     >
                       {task.priority}

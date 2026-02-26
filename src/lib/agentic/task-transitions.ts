@@ -1,60 +1,62 @@
-import type { TaskStatus } from '@/types/task';
+/**
+ * Server-side task transition helpers — reads from config/workflow.yaml via workflow-loader.
+ *
+ * NOTE: This module uses `fs` (via workflow-loader) and is server-only.
+ * Client components should use the `useWorkflow()` hook from WorkflowProvider instead.
+ */
+import {
+  getTransitions,
+  isValidTransition as wfIsValidTransition,
+  getTransitionLabel as wfGetTransitionLabel,
+  getSubtaskStatuses,
+  getStatusOrder,
+  getStatusColor,
+  getAllStatusIds,
+  getWorkflow,
+} from './workflow-loader';
 
 /**
- * Canonical status transition map.
+ * Canonical status transition map — loaded from config/workflow.yaml.
  * Each status maps to an array of valid target statuses.
- * The first element is the "primary forward" transition.
  */
-export const STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  'pending':     [],                         // subtask-only — agent-managed, no manual transitions
-  'backlog':     ['todo'],
-  'todo':        ['in-progress', 'backlog'],
-  'in-progress': ['review', 'blocked'],
-  'review':      ['done', 'in-progress'],
-  'done':        [],                         // terminal state
-  'blocked':     ['todo', 'in-progress'],
-};
+export const STATUS_TRANSITIONS: Record<string, string[]> = (() => {
+  const ids = getAllStatusIds();
+  const result: Record<string, string[]> = {};
+  for (const id of ids) {
+    result[id] = getTransitions(id);
+  }
+  return result;
+})();
 
-/** Valid statuses for subtasks */
-export const SUBTASK_STATUSES: TaskStatus[] = ['pending', 'in-progress', 'done', 'blocked'];
+/** Valid statuses for subtasks — loaded from config/workflow.yaml */
+export const SUBTASK_STATUSES: string[] = getSubtaskStatuses();
 
-/** Column ordering for directional semantics */
-export const STATUS_ORDER: TaskStatus[] = [
-  'backlog', 'todo', 'in-progress', 'review', 'done',
-];
+/** Column ordering for directional semantics — loaded from config/workflow.yaml */
+export const STATUS_ORDER: string[] = getStatusOrder();
 
-export function getValidTransitions(from: TaskStatus): TaskStatus[] {
-  return STATUS_TRANSITIONS[from] || [];
+export function getValidTransitions(from: string): string[] {
+  return getTransitions(from);
 }
 
-export function isValidTransition(from: TaskStatus, to: TaskStatus): boolean {
-  return getValidTransitions(from).includes(to);
+export function isValidTransition(from: string, to: string): boolean {
+  return wfIsValidTransition(from, to);
 }
 
-/** Human-readable labels for transition buttons */
-export const TRANSITION_LABELS: Record<string, string> = {
-  'backlog->todo':          'Move to To Do',
-  'todo->in-progress':      'Start Work',
-  'todo->backlog':          'Send to Backlog',
-  'in-progress->review':    'Submit for Review',
-  'in-progress->blocked':   'Mark Blocked',
-  'review->done':           'Mark Done',
-  'review->in-progress':    'Request Changes',
-  'blocked->todo':          'Unblock → To Do',
-  'blocked->in-progress':   'Resume Work',
-};
+/** Human-readable labels for transition buttons — loaded from config/workflow.yaml */
+export const TRANSITION_LABELS: Record<string, string> = (() => {
+  return { ...getWorkflow().transitionLabels };
+})();
 
-export function getTransitionLabel(from: TaskStatus, to: TaskStatus): string {
-  return TRANSITION_LABELS[`${from}->${to}`] || `Move to ${to}`;
+export function getTransitionLabel(from: string, to: string): string {
+  return wfGetTransitionLabel(from, to);
 }
 
-/** Status display colors — matches SprintBoard column colors */
-export const STATUS_COLORS: Record<TaskStatus, string> = {
-  'pending':     'var(--accent-cyan)',
-  'backlog':     'var(--text-muted)',
-  'todo':        'var(--accent-blue)',
-  'in-progress': 'var(--accent-amber)',
-  'review':      'var(--accent-violet)',
-  'done':        'var(--accent-green)',
-  'blocked':     'var(--accent-red)',
-};
+/** Status display colors — loaded from config/workflow.yaml */
+export const STATUS_COLORS: Record<string, string> = (() => {
+  const ids = getAllStatusIds();
+  const result: Record<string, string> = {};
+  for (const id of ids) {
+    result[id] = getStatusColor(id);
+  }
+  return result;
+})();

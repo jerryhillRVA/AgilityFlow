@@ -13,6 +13,9 @@ tools:
   - agentic_fs_ask
   - agentic_fs_batch_read
 delegatesTo: []
+artifactCategory: requirements
+contextCategories: [requirements, design, verification]
+iterationBudget: 8
 ---
 
 # Technical Writer Agent

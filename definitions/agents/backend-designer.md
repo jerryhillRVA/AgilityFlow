@@ -13,6 +13,10 @@ tools:
   - agentic_fs_ask
   - agentic_fs_batch_read
 delegatesTo: []
+artifactCategory: design
+contextCategories: [requirements, design]
+iterationBudget: 10
+requiresArtifacts: true
 memory:
   namespace: memory
   path: agents/backend-designer/

@@ -1,16 +1,8 @@
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NS } from './fs-paths';
-import type { Task, TaskArtifact, ArtifactCategory } from '@/types/task';
+import type { Task, TaskArtifact } from '@/types/task';
 import { log } from './logger';
-
-/** Maps agent roles to the artifact categories they need as context */
-const AGENT_CATEGORY_MAP: Record<string, ArtifactCategory[]> = {
-  'technical-writer': ['requirements', 'design', 'verification'],
-  'backend-designer': ['requirements', 'design'],
-  'frontend-designer': ['requirements', 'design'],
-  'qa-analyst': ['requirements', 'design'],
-  'design-reviewer': ['design', 'verification'],
-};
+import { getRegistry } from './registry';
 
 const MAX_ARTIFACT_CHARS = 2000;
 const MAX_RAG_CHARS = 1000;
@@ -29,8 +21,10 @@ export async function buildAgentContext(
   // 1. Task description
   parts.push(`## Task\n${task.title}\n\n${task.description}`);
 
-  // 2. Prior artifacts filtered by role relevance
-  const relevantCategories = AGENT_CATEGORY_MAP[agentId] || ['requirements', 'design', 'verification'];
+  // 2. Prior artifacts filtered by role relevance (from agent definition)
+  const registry = await getRegistry();
+  const agentDef = registry.getAgent(agentId);
+  const relevantCategories = agentDef?.contextCategories || ['requirements', 'design', 'verification'];
   const relevant = priorArtifacts.filter(a => relevantCategories.includes(a.category));
 
   if (relevant.length > 0) {

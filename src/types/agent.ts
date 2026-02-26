@@ -19,6 +19,14 @@ export interface AgentDefinition {
     auto_load: boolean;
     auto_save: boolean;
   };
+  /** Default artifact category for agentic_fs_write — replaces hard-coded AGENT_CATEGORY_MAP */
+  artifactCategory?: string;
+  /** Which artifact categories this agent receives as pre-fetched context */
+  contextCategories?: string[];
+  /** Max ReAct iterations for wave execution fallback */
+  iterationBudget?: number;
+  /** If true, 0 artifacts produced marks the subtask as blocked */
+  requiresArtifacts?: boolean;
 }
 
 export interface SkillDefinition {

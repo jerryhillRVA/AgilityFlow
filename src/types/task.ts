@@ -1,9 +1,12 @@
-export type TaskStatus = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done' | 'blocked' | 'pending';
-/** Valid statuses for subtasks. Subtask lifecycle: pending → in-progress → done (or blocked). */
-export type SubtaskStatus = 'pending' | 'in-progress' | 'done' | 'blocked';
-export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
+/** Task status — default values defined in config/workflow.yaml. Accepts any string for custom workflows. */
+export type TaskStatus = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done' | 'blocked' | 'pending' | (string & {});
+/** Subtask statuses — default values defined in config/workflow.yaml */
+export type SubtaskStatus = 'pending' | 'in-progress' | 'done' | 'blocked' | (string & {});
+/** Task priority — default values defined in config/workflow.yaml */
+export type TaskPriority = 'critical' | 'high' | 'medium' | 'low' | (string & {});
 export type ExecutionMode = 'plan' | 'execute';
-export type ArtifactCategory = 'requirements' | 'design' | 'implementation' | 'verification' | 'other';
+/** Artifact category — default values defined in config/workflow.yaml */
+export type ArtifactCategory = 'requirements' | 'design' | 'implementation' | 'verification' | 'other' | (string & {});
 
 export function isSubtask(task: Task): boolean {
   return !!task.parentTaskId;

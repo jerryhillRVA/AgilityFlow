@@ -1,9 +1,8 @@
 import { getOrchestrator } from '@/lib/agentic/orchestrator';
 import { isValidTransition, getValidTransitions } from '@/lib/agentic/task-transitions';
+import { getAllStatusIds } from '@/lib/agentic/workflow-loader';
 import { NextRequest, NextResponse } from 'next/server';
 import type { TaskStatus } from '@/types/task';
-
-const VALID_STATUSES: TaskStatus[] = ['backlog', 'todo', 'in-progress', 'review', 'done', 'blocked', 'pending'];
 
 export async function PATCH(
   request: NextRequest,
@@ -14,9 +13,10 @@ export async function PATCH(
     const body = await request.json();
     const newStatus = body.status as TaskStatus;
 
-    if (!newStatus || !VALID_STATUSES.includes(newStatus)) {
+    const validStatuses = getAllStatusIds();
+    if (!newStatus || !validStatuses.includes(newStatus)) {
       return NextResponse.json(
-        { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` },
+        { error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` },
         { status: 400 }
       );
     }

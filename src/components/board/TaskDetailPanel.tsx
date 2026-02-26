@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { X, User, Clock, Tag, FileText, GitBranch, ArrowUpRight, ChevronDown, ChevronRight, Activity, AlertTriangle, Zap, Rocket, Loader2, ExternalLink } from 'lucide-react';
-import type { Task, TaskStatus, TaskArtifact, ArtifactCategory, IterationRecord } from '@/types/task';
-import { STATUS_COLORS } from '@/lib/agentic/task-transitions';
+import type { Task, TaskStatus, TaskArtifact, IterationRecord } from '@/types/task';
 import { StatusTransitionButtons } from './StatusTransitionButtons';
 import { ArtifactViewerModal } from './ArtifactViewerModal';
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
+import { useWorkflow } from '@/components/providers/WorkflowProvider';
 
 interface TaskDetailPanelProps {
   task: Task;
@@ -16,21 +16,6 @@ interface TaskDetailPanelProps {
   onSelectTask: (task: Task) => void;
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: 'var(--accent-red)',
-  high: 'var(--accent-orange)',
-  medium: 'var(--accent-amber)',
-  low: 'var(--accent-green)',
-};
-
-const CATEGORY_LABELS: Record<ArtifactCategory, string> = {
-  requirements: 'Requirements',
-  design: 'Design',
-  implementation: 'Implementation',
-  verification: 'Verification',
-  other: 'Other',
-};
-
 const CATEGORY_COLORS: Record<string, string> = {
   requirements: 'var(--accent-blue)',
   design: 'var(--accent-violet)',
@@ -39,13 +24,18 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: 'var(--text-muted)',
 };
 
-const CATEGORY_ORDER: ArtifactCategory[] = ['requirements', 'design', 'implementation', 'verification', 'other'];
-
 export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSelectTask }: TaskDetailPanelProps) {
   const [viewingArtifact, setViewingArtifact] = useState<TaskArtifact | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [implementing, setImplementing] = useState(false);
   const [implementError, setImplementError] = useState<string | null>(null);
+  const { STATUS_COLORS, getPriorityColor, getArtifactCategories, getArtifactCategoryLabel } = useWorkflow();
+
+  const CATEGORY_ORDER = getArtifactCategories().map(c => c.id);
+  const CATEGORY_LABELS: Record<string, string> = {};
+  for (const cat of getArtifactCategories()) {
+    CATEGORY_LABELS[cat.id] = cat.label;
+  }
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -89,15 +79,13 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
   }
 
   // Group artifacts by category
-  const groupedArtifacts: Record<ArtifactCategory, TaskArtifact[]> = {
-    requirements: [],
-    design: [],
-    implementation: [],
-    verification: [],
-    other: [],
-  };
+  const groupedArtifacts: Record<string, TaskArtifact[]> = {};
+  for (const catId of CATEGORY_ORDER) {
+    groupedArtifacts[catId] = [];
+  }
   for (const artifact of artifacts) {
     const cat = artifact.category || 'other';
+    if (!groupedArtifacts[cat]) groupedArtifacts[cat] = [];
     groupedArtifacts[cat].push(artifact);
   }
 
@@ -144,8 +132,8 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
                 <span
                   className="text-[10px] px-2 py-0.5 rounded"
                   style={{
-                    background: `${PRIORITY_COLORS[task.priority]}15`,
-                    color: PRIORITY_COLORS[task.priority],
+                    background: `${getPriorityColor(task.priority)}15`,
+                    color: getPriorityColor(task.priority),
                   }}
                 >
                   {task.priority}

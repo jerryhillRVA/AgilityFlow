@@ -49,6 +49,10 @@ export class CapabilityRegistry {
         constraints: (fm.constraints as string[]) || [],
         delegatesTo: (fm.delegatesTo as string[]) || [],
         memory: fm.memory as AgentDefinition['memory'],
+        artifactCategory: fm.artifactCategory as string | undefined,
+        contextCategories: (fm.contextCategories as string[]) || undefined,
+        iterationBudget: fm.iterationBudget as number | undefined,
+        requiresArtifacts: fm.requiresArtifacts as boolean | undefined,
       });
     }
   }

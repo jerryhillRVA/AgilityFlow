@@ -8,9 +8,7 @@ import { parseArtifacts } from './artifact-parser';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
 import { log } from './logger';
-
-/** Agents that are expected to produce design artifacts */
-const DESIGN_AGENTS = ['backend-designer', 'frontend-designer'];
+import { getRegistry } from './registry';
 
 interface WaveGroup {
   waveNumber: number;
@@ -26,15 +24,6 @@ interface WaveGroup {
  *   Tier 2: ReAct iterative loop (existing AgentExecutor)
  */
 export class WaveExecutor {
-  /** Role-based iteration budget for the ReAct fallback tier.
-   *  Design agents need more headroom: ask(1) + read/search(1-2) + write artifacts(1-2) + max_tokens retry(1-2). */
-  private static readonly ITERATION_BUDGET: Record<string, number> = {
-    'backend-designer': 10,
-    'frontend-designer': 10,
-    'design-reviewer': 8,
-    'qa-analyst': 8,
-    'technical-writer': 8,
-  };
   private static readonly DEFAULT_ITERATIONS = 8;
 
   constructor(
@@ -43,8 +32,11 @@ export class WaveExecutor {
     private toolRouter: ToolRouter,
   ) {}
 
-  private getIterationBudget(agentId: string): number {
-    return WaveExecutor.ITERATION_BUDGET[agentId] ?? WaveExecutor.DEFAULT_ITERATIONS;
+  /** Read iterationBudget from agent definition, fall back to default */
+  private async getIterationBudget(agentId: string): Promise<number> {
+    const registry = await getRegistry();
+    const agentDef = registry.getAgent(agentId);
+    return agentDef?.iterationBudget ?? WaveExecutor.DEFAULT_ITERATIONS;
   }
 
   /**
@@ -132,7 +124,7 @@ export class WaveExecutor {
         ));
 
         // Tier 2: ReAct iterative loop
-        const maxIter = this.getIterationBudget(agentId);
+        const maxIter = await this.getIterationBudget(agentId);
         log.info('wave-executor', `Falling back to ReAct for ${agentId} with ${maxIter} iterations`, { subtaskId: subtask.id });
         const executor = new AgentExecutor(this.assembler, this.adapter, taskToolRouter);
         const result = await executor.execute(
@@ -144,7 +136,9 @@ export class WaveExecutor {
       // Validate artifact output before marking done
       const artifactCount = subtask.artifacts?.length || 0;
 
-      if (DESIGN_AGENTS.includes(agentId) && artifactCount === 0) {
+      const registry = await getRegistry();
+      const agentDef = registry.getAgent(agentId);
+      if (agentDef?.requiresArtifacts && artifactCount === 0) {
         log.warn('wave-executor', `Design agent "${agentId}" completed with ZERO artifacts for "${subtask.title}"`, {
           subtaskId: subtask.id,
           agentId,

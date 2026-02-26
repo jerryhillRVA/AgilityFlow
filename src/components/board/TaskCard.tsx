@@ -1,14 +1,9 @@
+'use client';
+
 import type { Task, TaskStatus } from '@/types/task';
 import { Paperclip, ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { StatusTransitionButtons } from './StatusTransitionButtons';
-import { STATUS_COLORS } from '@/lib/agentic/task-transitions';
-
-const priorityColors: Record<string, string> = {
-  critical: 'var(--accent-red)',
-  high: 'var(--accent-orange)',
-  medium: 'var(--accent-amber)',
-  low: 'var(--accent-green)',
-};
+import { useWorkflow } from '@/components/providers/WorkflowProvider';
 
 interface TaskCardProps {
   task: Task;
@@ -22,6 +17,7 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task, onClick, onStatusChange, isSubtask, subtaskCount, isExpanded, onToggleExpand, subtasks }: TaskCardProps) {
+  const { STATUS_COLORS, getPriorityColor } = useWorkflow();
   const artifactCount = task.artifacts?.length || 0;
 
   // Subtask card: compact with left accent border
@@ -105,8 +101,8 @@ export function TaskCard({ task, onClick, onStatusChange, isSubtask, subtaskCoun
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
           style={{
-            background: `${priorityColors[task.priority]}20`,
-            color: priorityColors[task.priority],
+            background: `${getPriorityColor(task.priority)}20`,
+            color: getPriorityColor(task.priority),
           }}>
           {task.priority}
         </span>

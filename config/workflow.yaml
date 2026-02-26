@@ -1,0 +1,116 @@
+name: default
+description: Standard design-driven development workflow
+
+statuses:
+  backlog:
+    label: Backlog
+    color: "var(--text-muted)"
+    column: true
+    order: 1
+  todo:
+    label: To Do
+    color: "var(--accent-blue)"
+    column: true
+    order: 2
+  in-progress:
+    label: In Progress
+    color: "var(--accent-amber)"
+    column: true
+    order: 3
+  review:
+    label: Review
+    color: "var(--accent-violet)"
+    column: true
+    order: 4
+  done:
+    label: Done
+    color: "var(--accent-green)"
+    column: true
+    order: 5
+    terminal: true
+  blocked:
+    label: Blocked
+    color: "var(--accent-red)"
+    column: true
+    order: 6
+  pending:
+    label: Pending
+    color: "var(--accent-cyan)"
+    column: false
+    subtaskOnly: true
+
+transitions:
+  backlog: [todo]
+  todo: [in-progress, backlog]
+  in-progress: [review, blocked]
+  review: [done, in-progress]
+  done: []
+  blocked: [todo, in-progress]
+  pending: []
+
+transitionLabels:
+  "backlog->todo": Move to To Do
+  "todo->in-progress": Start Work
+  "todo->backlog": Send to Backlog
+  "in-progress->review": Submit for Review
+  "in-progress->blocked": Mark Blocked
+  "review->done": Mark Done
+  "review->in-progress": Request Changes
+  "blocked->todo": "Unblock \u2192 To Do"
+  "blocked->in-progress": Resume Work
+
+transitionActions:
+  "backlog->todo":
+    action: run_wave
+    filter:
+      status: pending
+      agents: [technical-writer]
+    description: Generate documentation (wave 1)
+  "todo->in-progress":
+    action: run_wave
+    filter:
+      status: pending
+    description: Execute all pending subtask waves
+  "review->done":
+    action: cascade_done
+    description: Force all non-done subtasks to done
+
+subtaskLifecycle:
+  initial: pending
+  statuses: [pending, in-progress, done, blocked]
+  manualTransitions: false
+
+parentLifecycle:
+  initial: backlog
+  reviewGate: true
+
+priorities:
+  critical:
+    color: "var(--accent-red)"
+    order: 1
+  high:
+    color: "var(--accent-orange)"
+    order: 2
+  medium:
+    color: "var(--accent-amber)"
+    order: 3
+  low:
+    color: "var(--accent-green)"
+    order: 4
+
+artifactCategories:
+  requirements:
+    label: Requirements
+    order: 1
+  design:
+    label: Design
+    order: 2
+  implementation:
+    label: Implementation
+    order: 3
+  verification:
+    label: Verification
+    order: 4
+  other:
+    label: Other
+    order: 5

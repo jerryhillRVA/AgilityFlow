@@ -4,21 +4,15 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import type { Task, TaskStatus } from '@/types/task';
 import { TaskCard } from './TaskCard';
 import { TaskDetailPanel } from './TaskDetailPanel';
-
-const columns: { status: TaskStatus; label: string; color: string }[] = [
-  { status: 'backlog', label: 'Backlog', color: 'var(--text-muted)' },
-  { status: 'todo', label: 'To Do', color: 'var(--accent-blue)' },
-  { status: 'in-progress', label: 'In Progress', color: 'var(--accent-amber)' },
-  { status: 'review', label: 'Review', color: 'var(--accent-violet)' },
-  { status: 'done', label: 'Done', color: 'var(--accent-green)' },
-  { status: 'blocked', label: 'Blocked', color: 'var(--accent-red)' },
-];
+import { useWorkflow } from '@/components/providers/WorkflowProvider';
 
 export function SprintBoard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [expandedSwimlanes, setExpandedSwimlanes] = useState<Set<string>>(new Set());
   const selectedTaskRef = useRef<Task | null>(null);
+  const { getBoardColumns } = useWorkflow();
+  const columns = getBoardColumns().map(c => ({ status: c.id, label: c.label, color: c.color }));
 
   // Keep ref in sync so the stable fetchTasks can read it without re-creating
   useEffect(() => {
