@@ -26,6 +26,16 @@ export function StatusTransitionButtons({ task, onStatusChange, compact, subtask
   // Subtask status is agent-managed — no manual transitions
   if (task.parentTaskId) return null;
 
+  // Block transitions from backlog while decomposition is in progress
+  if (task.status === 'backlog' && task.decompositionComplete === false) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded" style={{ background: 'rgba(139, 92, 246, 0.1)', color: 'var(--accent-violet)' }}>
+        <Loader2 size={12} className="animate-spin" />
+        Planning in progress...
+      </div>
+    );
+  }
+
   if (validTransitions.length === 0) return null;
 
   // Check if the review transition is blocked by subtasks not yet done

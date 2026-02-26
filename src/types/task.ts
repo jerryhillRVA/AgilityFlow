@@ -61,6 +61,8 @@ export interface Task {
   implementationStatus?: 'pending' | 'implementing' | 'implemented' | 'failed';
   /** Error message from implementation phase */
   implementationError?: string;
+  /** Whether the orchestrator has finished decomposing this task (plan mode only) */
+  decompositionComplete?: boolean;
 }
 
 export interface TaskArtifact {

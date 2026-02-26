@@ -44,6 +44,15 @@ async function patchHandler(
       }, { status: 400 });
     }
 
+    // Decomposition gate: plan-mode task can't leave backlog until orchestrator finishes
+    if (previousStatus === 'backlog' && newStatus === 'todo') {
+      if (task.decompositionComplete === false) {
+        return NextResponse.json({
+          error: 'Task is still being decomposed by the orchestrator. Please wait for planning to complete.',
+        }, { status: 409 });
+      }
+    }
+
     // Subtask gate: parent can't move to review unless all subtasks are done
     if (previousStatus === 'in-progress' && newStatus === 'review') {
       const subtasks = orchestrator.getSubtasks(taskId);

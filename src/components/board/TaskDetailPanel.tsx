@@ -57,9 +57,11 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
   const artifacts = task.artifacts || [];
 
   const hasDesignArtifacts = artifacts.some(a => a.category === 'design');
+  const allSubtasksDone = subtasks.length > 0 && subtasks.every(s => s.status === 'done');
   const canImplement = !task.parentTaskId
-    && task.status === 'review'
+    && task.status === 'in-progress'
     && hasDesignArtifacts
+    && allSubtasksDone
     && (!task.implementationStatus || task.implementationStatus === 'failed');
 
   async function handleImplement() {
@@ -166,8 +168,16 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
               <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
                 Move Task
               </div>
+              {task.decompositionComplete === false && task.status === 'backlog' && (
+                <div className="flex items-center gap-2 p-2 rounded mb-2" style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
+                  <Loader2 size={12} className="animate-spin" style={{ color: 'var(--accent-violet)' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--accent-violet)' }}>
+                    Orchestrator is decomposing this task...
+                  </span>
+                </div>
+              )}
               <StatusTransitionButtons task={task} onStatusChange={onStatusChange} subtasks={subtasks} />
-              {/* Implement Button — for parent tasks in review with design artifacts */}
+              {/* Implement Button — for parent tasks in-progress with all subtasks done and design artifacts */}
               {canImplement && (
                 <button
                   onClick={handleImplement}

@@ -26,7 +26,7 @@ export class Orchestrator {
   private initialized = false;
   private planOnlyTasks: Set<string> = new Set();
   private currentParentTaskId: string | null = null;
-  private static SUB_AGENT_MAX_ITERATIONS = 8;
+  private static readonly DEFAULT_SUB_AGENT_ITERATIONS = 8;
 
   isReady(): boolean {
     return this.initialized && this.registry?.agents?.size > 0;
@@ -94,7 +94,8 @@ export class Orchestrator {
       const subExecutor = new AgentExecutor(assembler, adapter, taskToolRouter);
       try {
         this.updateTaskStatus(subtask.id, 'in-progress');
-        const result = await subExecutor.execute(agentId, subtask, undefined, Orchestrator.SUB_AGENT_MAX_ITERATIONS);
+        const iterBudget = this.getAgentIterationBudget(agentId);
+        const result = await subExecutor.execute(agentId, subtask, undefined, iterBudget);
         this.updateTaskStatus(subtask.id, 'done');
         return { taskId: subtask.id, agentId, result: result.response.slice(0, 500), artifacts: subtask.artifacts?.length || 0 };
       } catch (error) {
@@ -137,6 +138,21 @@ export class Orchestrator {
       this.updateTaskStatus(taskId, status);
       return { taskId, status };
     });
+  }
+
+  /**
+   * Resolve iteration budget for an agent from its definition.
+   * Checks iterationBudget first, then maxIterations, then falls back to default.
+   */
+  private getAgentIterationBudget(agentId: string): number {
+    const agentDef = this.registry.getAgent(agentId);
+    if (!agentDef) {
+      log.debug('orchestrator', `No agent definition for "${agentId}", using default iteration budget`, { agentId, budget: Orchestrator.DEFAULT_SUB_AGENT_ITERATIONS });
+      return Orchestrator.DEFAULT_SUB_AGENT_ITERATIONS;
+    }
+    const budget = agentDef.iterationBudget ?? agentDef.maxIterations ?? Orchestrator.DEFAULT_SUB_AGENT_ITERATIONS;
+    log.debug('orchestrator', `Iteration budget for "${agentId}": ${budget}`, { agentId, iterationBudget: agentDef.iterationBudget, maxIterations: agentDef.maxIterations, resolved: budget });
+    return budget;
   }
 
   private createTaskToolRouter(taskId: string): ToolRouter {
@@ -294,8 +310,9 @@ export class Orchestrator {
 
       try {
         this.updateTaskStatus(task.id, 'in-progress');
+        const iterBudget = this.getAgentIterationBudget(task.assignedAgent!);
         const result = await subExecutor.execute(
-          task.assignedAgent!, task, undefined, Orchestrator.SUB_AGENT_MAX_ITERATIONS
+          task.assignedAgent!, task, undefined, iterBudget
         );
         task.result = result.response.slice(0, 500);
         task.usage = {
@@ -469,11 +486,14 @@ export class Orchestrator {
           ? `\n\n## EXECUTION MODE: PLAN ONLY\nYou are in PLAN mode. Your job is to:\n1. Analyze the task and search for relevant context (1-2 searches max)\n2. Decompose into subtasks using create_subtask (assign each to the best agent using the assigned_agent field)\n3. For each subtask, provide a clear title, detailed description of what needs to be done, the assigned agent, and priority\n4. Write a brief plan summary as your final text response\n\nDO NOT use delegate_to_agent — delegation is blocked in plan mode. The user will review your plan and approve execution.\n\nIMPORTANT CONSTRAINTS:\n- Create as many subtasks as needed to fully cover the work (typically 3-8)\n- Include enough detail in each subtask description for the assigned agent to understand the full scope\n- Do NOT write files to Agentic FS during planning — save that for execution\n- End with a text summary of the plan`
           : '';
 
-        const planOverride = task.executionMode === 'plan' ? 20 : undefined;
+        const planOverride = task.executionMode === 'plan'
+          ? this.getAgentIterationBudget('orchestrator')
+          : undefined;
         await this.executor.execute('orchestrator', task, modeContext, planOverride);
 
         if (task.executionMode === 'plan') {
           const subtaskCount = this.getSubtasks(task.id).length;
+          task.decompositionComplete = true;
           log.info('orchestrator', `Plan complete for "${task.title}" — ${subtaskCount} subtask(s) created`, { taskId: task.id, subtaskCount, elapsedMs: elapsed() });
           eventBus.emit(createEvent(
             'orchestrator:plan_ready',
@@ -500,6 +520,7 @@ export class Orchestrator {
           'orchestrator',
           task.id,
         ));
+        task.decompositionComplete = true;
         this.updateTaskStatus(task.id, 'blocked');
       } finally {
         this.planOnlyTasks.delete(task.id);
@@ -536,6 +557,9 @@ export class Orchestrator {
       artifacts: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      decompositionComplete: (!params.parentTaskId && (params.executionMode || 'plan') === 'plan')
+        ? false
+        : undefined,
     };
     this.tasks.set(task.id, task);
     log.debug('orchestrator', `Task created: "${task.title}" [${task.status}]`, {

@@ -5,7 +5,8 @@ import { withApiLogging } from '@/lib/api-logger';
 /**
  * POST /api/tasks/:taskId/implement
  * Trigger Claude Code SDK implementation for a parent task's design artifacts.
- * The task must be a parent task in 'review' status with at least one design artifact.
+ * The task must be a parent task in 'in-progress' status with all subtasks done
+ * and at least one design artifact.
  * Implementation runs asynchronously — this route returns immediately.
  */
 async function postHandler(
@@ -31,9 +32,9 @@ async function postHandler(
       );
     }
 
-    if (task.status !== 'review') {
+    if (task.status !== 'in-progress') {
       return NextResponse.json(
-        { error: `Task must be in 'review' status to implement (current: ${task.status})` },
+        { error: `Task must be in 'in-progress' status to implement (current: ${task.status})` },
         { status: 400 },
       );
     }
@@ -44,6 +45,18 @@ async function postHandler(
         { error: 'Task has no design artifacts to implement' },
         { status: 400 },
       );
+    }
+
+    // All subtasks must be done before implementation
+    const subtasks = orchestrator.getSubtasks(taskId);
+    if (subtasks.length > 0) {
+      const notDone = subtasks.filter(s => s.status !== 'done');
+      if (notDone.length > 0) {
+        return NextResponse.json(
+          { error: `Cannot implement: ${notDone.length} subtask(s) not yet done` },
+          { status: 400 },
+        );
+      }
     }
 
     if (task.implementationStatus === 'implementing') {
