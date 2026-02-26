@@ -1,7 +1,8 @@
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET() {
+async function getHandler() {
   let agenticFsStatus: { status: string; error?: string } = { status: 'unknown' };
 
   try {
@@ -21,3 +22,5 @@ export async function GET() {
     timestamp: new Date().toISOString(),
   });
 }
+
+export const GET = withApiLogging(getHandler, 'health');

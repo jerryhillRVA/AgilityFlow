@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getWorkflow } from '@/lib/agentic/workflow-loader';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET() {
+async function getHandler() {
   try {
     const config = getWorkflow();
     return NextResponse.json(config);
@@ -12,3 +13,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withApiLogging(getHandler, 'workflow');

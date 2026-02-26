@@ -13,8 +13,9 @@ import { NS, paths } from './fs-paths';
 import { v4 as uuid } from 'uuid';
 import { initializeConnectors } from './connectors/startup';
 import { implementTask as runImplementation } from './implementer';
-import { log } from './logger';
+import { log, startTimer } from './logger';
 import { getAllStatusIds, getTransitionAction, getSubtaskInitialStatus, getParentInitialStatus } from './workflow-loader';
+import { withTraceAsync, getTraceId, generateTraceId } from './trace';
 
 export class Orchestrator {
   private registry!: CapabilityRegistry;
@@ -23,13 +24,8 @@ export class Orchestrator {
   private assembler!: PromptAssembler;
   private tasks: Map<string, Task> = new Map();
   private initialized = false;
-  /** Tracks which parent tasks are in plan-only mode (delegate_to_agent is blocked) */
   private planOnlyTasks: Set<string> = new Set();
-  /** Tracks the currently executing parent task ID so subtasks get linked */
   private currentParentTaskId: string | null = null;
-  /** Default max iterations for delegated sub-agents (keeps token usage bounded).
-   *  With agentic_fs_ask and batch_read, agents need fewer iterations for context
-   *  gathering, so 8 gives headroom for: ask(1) → implement(1) → write(1-2) → verify(1). */
   private static SUB_AGENT_MAX_ITERATIONS = 8;
 
   isReady(): boolean {
@@ -39,45 +35,38 @@ export class Orchestrator {
   async initialize(): Promise<void> {
     if (this.initialized && this.registry?.agents?.size > 0) return;
 
+    const elapsed = startTimer();
     this.registry = await getRegistry();
     this.assembler = new PromptAssembler(this.registry);
     const adapter = createAdapter();
     this.toolRouter = new ToolRouter();
 
-    // Register Agentic FS tools
     registerAgenticFSTools(this.toolRouter);
-
-    // NOTE: artifact tracking is done per-task via createTaskToolRouter(), not globally
-
-    // Register orchestration tools
     this.registerOrchestrationTools(this.assembler, adapter);
-
     this.executor = new AgentExecutor(this.assembler, adapter, this.toolRouter);
 
-    // Hydrate in-memory task cache from Agentic FS
     await this.loadTasksFromFS();
 
     this.initialized = true;
+
+    log.info('orchestrator', `Initialized (${this.registry.agents.size} agents, ${this.registry.skills.size} skills, adapter: ${adapter.name})`, { elapsedMs: elapsed() });
 
     eventBus.emit(createEvent(
       'system:info',
       `Orchestrator initialized with ${this.registry.agents.size} agents, ${this.registry.skills.size} skills (adapter: ${adapter.name})`,
     ));
 
-    // Fire up connectors (non-blocking, fire-and-forget)
     initializeConnectors();
   }
 
   private registerOrchestrationTools(assembler: PromptAssembler, adapter: ReturnType<typeof createAdapter>): void {
-    // delegate_to_agent: runs a sub-agent in-process
-    // In plan mode, this is blocked — returns a message telling the orchestrator to stop
     this.toolRouter.register('delegate_to_agent', async (input) => {
       const agentId = input.agent_id as string;
       const agent = this.registry.getAgent(agentId);
       if (!agent) return { error: `Agent not found: ${agentId}` };
 
-      // Check if the calling context is plan-only (delegation blocked)
       if (this.planOnlyTasks.size > 0) {
+        log.debug('orchestrator', `Delegation blocked (plan mode) for "${input.task_title}" → ${agentId}`);
         return {
           blocked: true,
           message: `Delegation is not allowed in plan mode. The subtask "${input.task_title}" has been noted for agent "${agent.name}". Use create_subtask instead to record the planned work, then stop and report your plan. The user will approve execution later.`,
@@ -91,6 +80,8 @@ export class Orchestrator {
         assignedAgent: agentId,
       });
 
+      log.info('orchestrator', `Delegating to ${agentId}: "${subtask.title}"`, { taskId: subtask.id, agentId });
+
       eventBus.emit(createEvent(
         'orchestrator:delegated',
         `Delegated "${subtask.title}" to ${agent.name}`,
@@ -99,7 +90,6 @@ export class Orchestrator {
         subtask.id,
       ));
 
-      // Execute the subtask with a fresh executor and per-task tool router
       const taskToolRouter = this.createTaskToolRouter(subtask.id);
       const subExecutor = new AgentExecutor(assembler, adapter, taskToolRouter);
       try {
@@ -110,11 +100,11 @@ export class Orchestrator {
       } catch (error) {
         this.updateTaskStatus(subtask.id, 'blocked');
         subtask.errorMessage = String(error);
+        log.error('orchestrator', `Delegation failed for "${subtask.title}"`, { taskId: subtask.id, agentId, error: String(error) });
         return { taskId: subtask.id, agentId, error: String(error) };
       }
     });
 
-    // create_subtask: creates a new task linked to the current parent
     this.toolRouter.register('create_subtask', async (input) => {
       const task = this.createTask({
         title: input.title as string,
@@ -125,17 +115,22 @@ export class Orchestrator {
         executionOrder: input.execution_order as number | undefined,
         dependsOn: input.depends_on as string[] | undefined,
       });
-      // Link subtask to parent
       if (this.currentParentTaskId) {
         const parent = this.tasks.get(this.currentParentTaskId);
         if (parent) parent.subtaskIds.push(task.id);
       }
-      // Persist subtask to Agentic FS
+
+      log.info('orchestrator', `Subtask created: "${task.title}"`, {
+        taskId: task.id,
+        parentTaskId: this.currentParentTaskId,
+        assignedAgent: task.assignedAgent,
+        executionOrder: task.executionOrder,
+      });
+
       this.persistTask(task).catch(() => {});
       return { taskId: task.id, title: task.title, status: task.status, assignedAgent: task.assignedAgent };
     });
 
-    // update_task_status
     this.toolRouter.register('update_task_status', async (input) => {
       const taskId = input.task_id as string;
       const status = input.status as TaskStatus;
@@ -144,19 +139,12 @@ export class Orchestrator {
     });
   }
 
-  /**
-   * Creates a per-task tool router proxy that intercepts agentic_fs_write
-   * calls to:
-   * 1. Rewrite the artifact path to be task-scoped (artifacts/{taskId}/{category}/{filename})
-   * 2. Attach artifacts to the correct task for tracking
-   */
   private createTaskToolRouter(taskId: string): ToolRouter {
     const baseRouter = this.toolRouter;
     const self = this;
 
     const proxy = Object.create(baseRouter) as ToolRouter;
     proxy.execute = async (toolName: string, input: Record<string, unknown>): Promise<string> => {
-      // For agentic_fs_write, rewrite namespace/path to task-scoped location
       if (toolName === 'agentic_fs_write') {
         const category = (input.category as ArtifactCategory) || 'other';
         const rewrittenInput = {
@@ -196,16 +184,12 @@ export class Orchestrator {
     return proxy;
   }
 
-  /** Attach an artifact to a task (and its parent if it has one).
-   *  Deduplicates by filename — if a file with the same name exists,
-   *  it replaces the old entry (agent rewrote the file). */
   private addArtifact(taskId: string, artifact: TaskArtifact): void {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
     if (!task.artifacts) task.artifacts = [];
 
-    // Deduplicate: replace existing artifact with same filename
     const existingIdx = task.artifacts.findIndex(a => a.filename === artifact.filename);
     if (existingIdx >= 0) {
       task.artifacts[existingIdx] = artifact;
@@ -221,7 +205,6 @@ export class Orchestrator {
       taskId,
     ));
 
-    // Also attach to parent task for visibility (with deduplication)
     if (task.parentTaskId) {
       const parent = this.tasks.get(task.parentTaskId);
       if (parent) {
@@ -236,10 +219,6 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Submit a task to the orchestrator.
-   * @param mode - 'plan' (default): decompose only, don't delegate. 'execute': full autonomous execution.
-   */
   async submitTask(title: string, description: string, priority?: string, mode?: ExecutionMode): Promise<Task> {
     await this.initialize();
 
@@ -252,33 +231,31 @@ export class Orchestrator {
       executionMode,
     });
 
+    log.info('orchestrator', `Task submitted: "${title}"`, { taskId: task.id, priority: task.priority, mode: executionMode });
+
     eventBus.emit(createEvent(
       'task:created',
       `Task created: ${title} (mode: ${executionMode})`,
       { taskId: task.id, title, executionMode },
     ));
 
-    // Try to persist to Agentic FS (non-blocking, best-effort)
     this.persistTask(task).catch(() => {});
 
-    // Execute orchestrator asynchronously
-    this.executeAsync(task);
+    const traceId = getTraceId() || generateTraceId();
+    this.executeAsync(task, traceId);
 
     return task;
   }
 
-  /**
-   * Execute approved subtasks — called after user reviews the plan and approves.
-   * Takes specific task IDs to execute, not the whole plan.
-   */
   async executeApproved(taskIds: string[]): Promise<void> {
     await this.initialize();
+
+    const traceId = getTraceId() || generateTraceId();
 
     for (const taskId of taskIds) {
       const task = this.tasks.get(taskId);
       if (!task) continue;
       if (!task.assignedAgent) {
-        // No agent assigned — skip
         eventBus.emit(createEvent(
           'system:info',
           `Skipping "${task.title}" — no agent assigned`,
@@ -290,6 +267,8 @@ export class Orchestrator {
       const agent = this.registry.getAgent(task.assignedAgent);
       if (!agent) continue;
 
+      log.info('orchestrator', `Executing approved task: "${task.title}" → ${task.assignedAgent}`, { taskId });
+
       eventBus.emit(createEvent(
         'orchestrator:delegated',
         `Executing approved task "${task.title}" → ${agent.name}`,
@@ -298,56 +277,72 @@ export class Orchestrator {
         taskId,
       ));
 
-      // Execute in background (don't block the loop)
-      this.executeDelegatedTask(task).catch(() => {});
+      this.executeDelegatedTask(task, traceId).catch(() => {});
     }
   }
 
-  private async executeDelegatedTask(task: Task): Promise<void> {
-    const adapter = createAdapter();
-    // Each task gets its own tool router proxy so artifacts are tracked correctly
-    const taskToolRouter = this.createTaskToolRouter(task.id);
-    const subExecutor = new AgentExecutor(this.assembler, adapter, taskToolRouter);
+  private async executeDelegatedTask(task: Task, traceId?: string): Promise<void> {
+    const effectiveTraceId = traceId || getTraceId() || generateTraceId();
 
-    try {
-      this.updateTaskStatus(task.id, 'in-progress');
-      const result = await subExecutor.execute(
-        task.assignedAgent!, task, undefined, Orchestrator.SUB_AGENT_MAX_ITERATIONS
-      );
-      // Store result and usage on the task for auditability
-      task.result = result.response.slice(0, 500);
-      task.usage = {
-        totalInputTokens: result.usage.totalInputTokens,
-        totalOutputTokens: result.usage.totalOutputTokens,
-        iterations: result.usage.iterationDetails?.length || 1,
-        iterationDetails: result.usage.iterationDetails,
-      };
+    return withTraceAsync({ traceId: effectiveTraceId, taskId: task.id, agentId: task.assignedAgent || undefined }, async () => {
+      const elapsed = startTimer();
+      const adapter = createAdapter();
+      const taskToolRouter = this.createTaskToolRouter(task.id);
+      const subExecutor = new AgentExecutor(this.assembler, adapter, taskToolRouter);
 
-      // Validate agents that require artifacts
-      const artifactCount = task.artifacts?.length || 0;
-      const agentDef = this.registry.getAgent(task.assignedAgent!);
-      if (agentDef?.requiresArtifacts && artifactCount === 0) {
-        log.warn('orchestrator', `Design agent "${task.assignedAgent}" completed with ZERO artifacts for "${task.title}"`, { taskId: task.id });
+      log.info('orchestrator', `Delegated execution starting: "${task.title}" → ${task.assignedAgent}`, { taskId: task.id, agentId: task.assignedAgent });
+
+      try {
+        this.updateTaskStatus(task.id, 'in-progress');
+        const result = await subExecutor.execute(
+          task.assignedAgent!, task, undefined, Orchestrator.SUB_AGENT_MAX_ITERATIONS
+        );
+        task.result = result.response.slice(0, 500);
+        task.usage = {
+          totalInputTokens: result.usage.totalInputTokens,
+          totalOutputTokens: result.usage.totalOutputTokens,
+          iterations: result.usage.iterationDetails?.length || 1,
+          iterationDetails: result.usage.iterationDetails,
+        };
+
+        const artifactCount = task.artifacts?.length || 0;
+        const agentDef = this.registry.getAgent(task.assignedAgent!);
+        if (agentDef?.requiresArtifacts && artifactCount === 0) {
+          log.warn('orchestrator', `Agent "${task.assignedAgent}" completed with ZERO artifacts for "${task.title}"`, { taskId: task.id });
+          this.updateTaskStatus(task.id, 'blocked');
+          task.errorMessage = `Agent ${task.assignedAgent} completed execution but produced no artifacts.`;
+        } else {
+          log.info('orchestrator', `Delegated execution complete: "${task.title}" (${artifactCount} artifact(s))`, {
+            taskId: task.id,
+            agent: task.assignedAgent,
+            artifactCount,
+            inputTokens: result.usage.totalInputTokens,
+            outputTokens: result.usage.totalOutputTokens,
+            iterations: result.usage.iterationDetails?.length,
+            elapsedMs: elapsed(),
+          });
+          this.updateTaskStatus(task.id, 'done');
+        }
+
+        this.persistTaskUpdate(task).catch(() => {});
+      } catch (error) {
+        log.error('orchestrator', `Delegated execution failed: "${task.title}"`, {
+          taskId: task.id, agentId: task.assignedAgent,
+          error: String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          elapsedMs: elapsed(),
+        });
         this.updateTaskStatus(task.id, 'blocked');
-        task.errorMessage = `Agent ${task.assignedAgent} completed execution but produced no artifacts.`;
-      } else {
-        log.info('orchestrator', `Task "${task.title}" completed with ${artifactCount} artifact(s)`, { taskId: task.id, agent: task.assignedAgent });
-        this.updateTaskStatus(task.id, 'done');
+        task.errorMessage = String(error);
+        eventBus.emit(createEvent(
+          'agent:error',
+          `Agent ${task.assignedAgent} error: ${String(error)}`,
+          { error: String(error) },
+          task.assignedAgent,
+          task.id,
+        ));
       }
-
-      // Persist updated state
-      this.persistTaskUpdate(task).catch(() => {});
-    } catch (error) {
-      this.updateTaskStatus(task.id, 'blocked');
-      task.errorMessage = String(error);
-      eventBus.emit(createEvent(
-        'agent:error',
-        `Agent ${task.assignedAgent} error: ${String(error)}`,
-        { error: String(error) },
-        task.assignedAgent,
-        task.id,
-      ));
-    }
+    });
   }
 
   private async persistTask(task: Task): Promise<void> {
@@ -359,30 +354,28 @@ export class Orchestrator {
         { namespace: NS.TASKS, path: paths.tasks.dir(task.status), tags: ['task', task.priority] }
       );
       task.fileId = result.file_id;
-    } catch {
-      // Agentic FS may not be available; continue without persistence
+      log.debug('orchestrator', `Task persisted to FS`, { taskId: task.id, fileId: result.file_id });
+    } catch (err) {
+      log.warn('orchestrator', `Failed to persist task to FS`, { taskId: task.id, error: String(err) });
     }
   }
 
-  /** Update an existing task file in Agentic FS after status change */
   private async persistTaskUpdate(task: Task): Promise<void> {
     if (!task.fileId) return;
     try {
       const fs = getAgenticFSClient();
       await fs.replaceFile(task.fileId, JSON.stringify(task, null, 2), `${task.id}.json`);
-      // Move file to new status directory
       await fs.moveFile(task.fileId, paths.tasks.dir(task.status), NS.TASKS);
-    } catch {
-      // Agentic FS may not be available
+    } catch (err) {
+      log.warn('orchestrator', `Failed to update task in FS`, { taskId: task.id, fileId: task.fileId, error: String(err) });
     }
   }
 
-  /** Hydrate in-memory task cache from Agentic FS on startup */
   private async loadTasksFromFS(): Promise<void> {
     try {
+      const elapsed = startTimer();
       const fs = getAgenticFSClient();
 
-      // List all status directories in parallel
       const dirResults = await Promise.allSettled(
         getAllStatusIds().map(status =>
           fs.listDirectory(paths.tasks.dir(status), NS.TASKS)
@@ -390,7 +383,6 @@ export class Orchestrator {
         )
       );
 
-      // Collect file IDs from successful listings
       const fileIds: string[] = [];
       for (const result of dirResults) {
         if (result.status === 'fulfilled') {
@@ -402,9 +394,11 @@ export class Orchestrator {
         }
       }
 
-      if (fileIds.length === 0) return;
+      if (fileIds.length === 0) {
+        log.debug('orchestrator', 'No tasks found in FS');
+        return;
+      }
 
-      // Batch retrieve in chunks of 50
       const BATCH_SIZE = 50;
       let loaded = 0;
       let errors = 0;
@@ -424,9 +418,7 @@ export class Orchestrator {
                 continue;
               }
 
-              // Ensure fileId is set from the FS response
               taskData.fileId = file.file_id;
-              // Defaults for fields that may be missing in old data
               if (!taskData.subtaskIds) taskData.subtaskIds = [];
               if (!taskData.tags) taskData.tags = [];
 
@@ -437,15 +429,18 @@ export class Orchestrator {
             }
           }
         } catch {
-          // Skip failed batch, continue with next
+          // Skip failed batch
         }
       }
+
+      log.info('orchestrator', `Task cache hydrated from FS`, { loaded, errors, filesScanned: fileIds.length, elapsedMs: elapsed() });
 
       eventBus.emit(createEvent(
         'system:info',
         `Loaded ${loaded} task(s) from Agentic FS (${errors} error(s), ${fileIds.length} file(s) scanned)`,
       ));
     } catch {
+      log.debug('orchestrator', 'Agentic FS unavailable — starting with empty task store');
       eventBus.emit(createEvent(
         'system:info',
         'Agentic FS unavailable — starting with empty task store',
@@ -453,59 +448,64 @@ export class Orchestrator {
     }
   }
 
-  private async executeAsync(task: Task): Promise<void> {
-    // In plan mode, block delegation during orchestrator execution
-    if (task.executionMode === 'plan') {
-      this.planOnlyTasks.add(task.id);
-    }
-
-    // Track parent so create_subtask links correctly
-    this.currentParentTaskId = task.id;
-
-    try {
-      // In plan mode, task stays in backlog (no status change visible to user)
-      // In execute mode, move to in-progress
-      if (task.executionMode !== 'plan') {
-        this.updateTaskStatus(task.id, 'in-progress');
-      }
-
-      // Add execution mode context to the orchestrator prompt
-      const modeContext = task.executionMode === 'plan'
-        ? `\n\n## EXECUTION MODE: PLAN ONLY\nYou are in PLAN mode. Your job is to:\n1. Analyze the task and search for relevant context (1-2 searches max)\n2. Decompose into subtasks using create_subtask (assign each to the best agent using the assigned_agent field)\n3. For each subtask, provide a clear title, detailed description of what needs to be done, the assigned agent, and priority\n4. Write a brief plan summary as your final text response\n\nDO NOT use delegate_to_agent — delegation is blocked in plan mode. The user will review your plan and approve execution.\n\nIMPORTANT CONSTRAINTS:\n- Create as many subtasks as needed to fully cover the work (typically 3-8)\n- Include enough detail in each subtask description for the assigned agent to understand the full scope\n- Do NOT write files to Agentic FS during planning — save that for execution\n- End with a text summary of the plan`
-        : '';
-
-      // In plan mode, use a moderate iteration cap — enough to create subtasks with detail
-      const planOverride = task.executionMode === 'plan' ? 20 : undefined;
-      await this.executor.execute('orchestrator', task, modeContext, planOverride);
+  private async executeAsync(task: Task, traceId: string): Promise<void> {
+    return withTraceAsync({ traceId, taskId: task.id }, async () => {
+      const elapsed = startTimer();
 
       if (task.executionMode === 'plan') {
-        // Task stays in backlog with subtasks and plan visible
-        // Emit plan_ready event so UI knows planning is complete
+        this.planOnlyTasks.add(task.id);
+      }
+
+      this.currentParentTaskId = task.id;
+
+      log.info('orchestrator', `Executing task async: "${task.title}" (mode: ${task.executionMode})`, { taskId: task.id, mode: task.executionMode });
+
+      try {
+        if (task.executionMode !== 'plan') {
+          this.updateTaskStatus(task.id, 'in-progress');
+        }
+
+        const modeContext = task.executionMode === 'plan'
+          ? `\n\n## EXECUTION MODE: PLAN ONLY\nYou are in PLAN mode. Your job is to:\n1. Analyze the task and search for relevant context (1-2 searches max)\n2. Decompose into subtasks using create_subtask (assign each to the best agent using the assigned_agent field)\n3. For each subtask, provide a clear title, detailed description of what needs to be done, the assigned agent, and priority\n4. Write a brief plan summary as your final text response\n\nDO NOT use delegate_to_agent — delegation is blocked in plan mode. The user will review your plan and approve execution.\n\nIMPORTANT CONSTRAINTS:\n- Create as many subtasks as needed to fully cover the work (typically 3-8)\n- Include enough detail in each subtask description for the assigned agent to understand the full scope\n- Do NOT write files to Agentic FS during planning — save that for execution\n- End with a text summary of the plan`
+          : '';
+
+        const planOverride = task.executionMode === 'plan' ? 20 : undefined;
+        await this.executor.execute('orchestrator', task, modeContext, planOverride);
+
+        if (task.executionMode === 'plan') {
+          const subtaskCount = this.getSubtasks(task.id).length;
+          log.info('orchestrator', `Plan complete for "${task.title}" — ${subtaskCount} subtask(s) created`, { taskId: task.id, subtaskCount, elapsedMs: elapsed() });
+          eventBus.emit(createEvent(
+            'orchestrator:plan_ready',
+            `Plan ready for "${task.title}" — ${subtaskCount} subtasks created. Move to To Do to begin.`,
+            { taskId: task.id, subtaskCount },
+            'orchestrator',
+            task.id,
+          ));
+          this.persistTaskUpdate(task).catch(() => {});
+        } else {
+          log.info('orchestrator', `Task execution complete: "${task.title}"`, { taskId: task.id, elapsedMs: elapsed() });
+          this.updateTaskStatus(task.id, 'done');
+        }
+      } catch (error) {
+        log.error('orchestrator', `Task execution failed: "${task.title}"`, {
+          taskId: task.id, error: String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          elapsedMs: elapsed(),
+        });
         eventBus.emit(createEvent(
-          'orchestrator:plan_ready',
-          `Plan ready for "${task.title}" — ${this.getSubtasks(task.id).length} subtasks created. Move to To Do to begin.`,
-          { taskId: task.id, subtaskCount: this.getSubtasks(task.id).length },
+          'agent:error',
+          `Orchestrator error: ${String(error)}`,
+          { error: String(error) },
           'orchestrator',
           task.id,
         ));
-        // Persist updated parent with subtaskIds
-        this.persistTaskUpdate(task).catch(() => {});
-      } else {
-        this.updateTaskStatus(task.id, 'done');
+        this.updateTaskStatus(task.id, 'blocked');
+      } finally {
+        this.planOnlyTasks.delete(task.id);
+        this.currentParentTaskId = null;
       }
-    } catch (error) {
-      eventBus.emit(createEvent(
-        'agent:error',
-        `Orchestrator error: ${String(error)}`,
-        { error: String(error) },
-        'orchestrator',
-        task.id,
-      ));
-      this.updateTaskStatus(task.id, 'blocked');
-    } finally {
-      this.planOnlyTasks.delete(task.id);
-      this.currentParentTaskId = null;
-    }
+    });
   }
 
   private createTask(params: {
@@ -538,14 +538,19 @@ export class Orchestrator {
       updatedAt: new Date().toISOString(),
     };
     this.tasks.set(task.id, task);
+    log.debug('orchestrator', `Task created: "${task.title}" [${task.status}]`, {
+      taskId: task.id, parentTaskId: params.parentTaskId, assignedAgent: params.assignedAgent,
+    });
     return task;
   }
 
   private updateTaskStatus(taskId: string, status: TaskStatus): void {
     const task = this.tasks.get(taskId);
     if (task) {
+      const previousStatus = task.status;
       task.status = status;
       task.updatedAt = new Date().toISOString();
+      log.info('orchestrator', `Status: "${task.title}" ${previousStatus} → ${status}`, { taskId, from: previousStatus, to: status });
       eventBus.emit(createEvent(
         'task:updated',
         `Task "${task.title}" → ${status}`,
@@ -556,22 +561,14 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Manually update a task's status from the UI.
-   * Transition validation must be done by the caller (API route).
-   * Fires transition actions asynchronously (non-blocking).
-   */
   async manualUpdateStatus(taskId: string, newStatus: TaskStatus): Promise<void> {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
     const previousStatus = task.status;
     this.updateTaskStatus(taskId, newStatus);
-
-    // Persist to FS (best-effort)
     this.persistTaskUpdate(task).catch(() => {});
 
-    // Fire transition action asynchronously (non-blocking)
     this.executeTransitionAction(previousStatus, newStatus, task).catch((err) => {
       eventBus.emit(createEvent(
         'system:error',
@@ -581,12 +578,11 @@ export class Orchestrator {
     });
   }
 
-  /**
-   * Execute actions triggered by status transitions.
-   */
   private async executeTransitionAction(from: TaskStatus, to: TaskStatus, task: Task): Promise<void> {
     const actionDef = getTransitionAction(from, to);
     if (!actionDef) return;
+
+    log.info('orchestrator', `Transition action: ${from} → ${to} (${actionDef.action})`, { taskId: task.id, action: actionDef.action });
 
     switch (actionDef.action) {
       case 'run_wave':
@@ -598,10 +594,6 @@ export class Orchestrator {
     }
   }
 
-  /**
-   * Runs a filtered wave based on transition action config.
-   * Replaces the hard-coded runDocumentationGeneration and runDesignExecution methods.
-   */
   private async runFilteredWave(
     task: Task,
     filter?: { status?: string; agents?: string[] },
@@ -621,6 +613,8 @@ export class Orchestrator {
     if (matching.length === 0) return;
 
     const filterDesc = agentFilter ? agentFilter.join(', ') : 'all pending';
+    log.info('orchestrator', `Running wave for "${task.title}" — ${matching.length} subtask(s) [${filterDesc}]`, { taskId: task.id, subtaskCount: matching.length });
+
     eventBus.emit(createEvent(
       'task:transition_action',
       `Running wave for "${task.title}" — ${matching.length} subtask(s) matching [${filterDesc}]`,
@@ -643,9 +637,6 @@ export class Orchestrator {
     });
   }
 
-  /**
-   * Triggered on review→done: cascades all non-done subtasks to done.
-   */
   private cascadeSubtasksToDone(parentTask: Task): void {
     const subtasks = this.getSubtasks(parentTask.id);
 
@@ -666,7 +657,6 @@ export class Orchestrator {
     }
   }
 
-  /** Get subtasks of a parent task */
   getSubtasks(parentTaskId: string): Task[] {
     return this.getTasks().filter(t => t.parentTaskId === parentTaskId);
   }
@@ -685,10 +675,6 @@ export class Orchestrator {
     return this.getTasks().filter(t => t.status === status);
   }
 
-  /**
-   * Trigger Claude Code SDK implementation for a task's design artifacts.
-   * Runs asynchronously — call this method without awaiting.
-   */
   async implementTask(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
     if (!task) {
@@ -696,10 +682,11 @@ export class Orchestrator {
       return;
     }
 
-    // Set status to implementing
     task.implementationStatus = 'implementing';
     task.implementationError = undefined;
     this.persistTaskUpdate(task).catch(() => {});
+
+    log.info('orchestrator', `Implementation started for "${task.title}"`, { taskId });
 
     eventBus.emit(createEvent(
       'implementation:started',
@@ -756,7 +743,6 @@ export class Orchestrator {
   }
 }
 
-// Use globalThis to ensure a single instance survives Turbopack module isolation in dev mode
 const orchestratorKey = '__agilityflow_orchestrator__' as const;
 export async function getOrchestrator(): Promise<Orchestrator> {
   let orchestrator = (globalThis as Record<string, unknown>)[orchestratorKey] as Orchestrator | undefined;

@@ -1,5 +1,6 @@
 import { getOrchestrator } from '@/lib/agentic/orchestrator';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
 /**
  * POST /api/tasks/:taskId/implement
@@ -7,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * The task must be a parent task in 'review' status with at least one design artifact.
  * Implementation runs asynchronously — this route returns immediately.
  */
-export async function POST(
+async function postHandler(
   _request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> },
 ) {
@@ -23,7 +24,6 @@ export async function POST(
       );
     }
 
-    // Must be a parent task (no parentTaskId)
     if (task.parentTaskId) {
       return NextResponse.json(
         { error: 'Only parent tasks can be implemented' },
@@ -31,7 +31,6 @@ export async function POST(
       );
     }
 
-    // Must be in review status
     if (task.status !== 'review') {
       return NextResponse.json(
         { error: `Task must be in 'review' status to implement (current: ${task.status})` },
@@ -39,7 +38,6 @@ export async function POST(
       );
     }
 
-    // Must have at least one design artifact
     const hasDesignArtifact = task.artifacts?.some(a => a.category === 'design');
     if (!hasDesignArtifact) {
       return NextResponse.json(
@@ -48,7 +46,6 @@ export async function POST(
       );
     }
 
-    // Must not already be implementing
     if (task.implementationStatus === 'implementing') {
       return NextResponse.json(
         { error: 'Implementation is already in progress' },
@@ -56,7 +53,6 @@ export async function POST(
       );
     }
 
-    // Kick off implementation asynchronously (non-blocking)
     orchestrator.implementTask(taskId);
 
     return NextResponse.json({
@@ -70,3 +66,5 @@ export async function POST(
     );
   }
 }
+
+export const POST = withApiLogging(postHandler, 'tasks/implement');

@@ -192,6 +192,8 @@ All agent activity flows through an in-process event bus. Events are buffered (l
 | `AGENTIC_FS_URL` | No | Agentic FS service URL (default: `http://localhost:8000`) |
 | `AGENTIC_FS_TENANT` | No | Tenant scope for Agentic FS (default: `default`) |
 | `ANTHROPIC_API_KEY` | No | Anthropic API key. Empty = mock mode. |
+| `LOG_LEVEL` | No | Log verbosity: `debug`, `info`, `warn`, `error` (default: `debug` in dev, `info` in prod) |
+| `LOG_FILE` | No | When set, tee log output to this file in addition to stdout/stderr (e.g. `server.log`) |
 
 ### Config Files
 
@@ -256,3 +258,15 @@ npm run lint     # Run ESLint
 ```
 
 **Node version:** This project requires Node.js 22. Use `nvm use` to activate the correct version from `.nvmrc`.
+
+### Debug Logging
+
+```bash
+# Start with full debug logging to file + terminal
+LOG_LEVEL=debug LOG_FILE=server.log npm run dev
+
+# Trace a specific task through the entire pipeline
+grep trace:<id> server.log
+```
+
+All log output streams to both the launch terminal (stdout/stderr) and the log file simultaneously — the file is an additional copy, not a replacement. Every API request generates a trace ID that propagates through the full agent execution pipeline, making it easy to follow a single task from submission to completion.

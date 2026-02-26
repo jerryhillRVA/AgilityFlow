@@ -1,7 +1,8 @@
 import { getOrchestrator } from '@/lib/agentic/orchestrator';
 import { NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET() {
+async function getHandler() {
   try {
     const orchestrator = await getOrchestrator();
     const tasks = orchestrator.getTasks();
@@ -33,3 +34,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withApiLogging(getHandler, 'sprint');

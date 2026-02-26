@@ -2,9 +2,10 @@ import { getOrchestrator } from '@/lib/agentic/orchestrator';
 import { isValidTransition, getValidTransitions } from '@/lib/agentic/task-transitions';
 import { getAllStatusIds } from '@/lib/agentic/workflow-loader';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 import type { TaskStatus } from '@/types/task';
 
-export async function PATCH(
+async function patchHandler(
   request: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
@@ -73,3 +74,5 @@ export async function PATCH(
     );
   }
 }
+
+export const PATCH = withApiLogging(patchHandler, 'tasks/status');

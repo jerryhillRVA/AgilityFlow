@@ -1,7 +1,8 @@
 import { getOrchestrator } from '@/lib/agentic/orchestrator';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const body = await request.json();
     const { title, description, priority, mode } = body;
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+async function getHandler() {
   try {
     const orchestrator = await getOrchestrator();
     return NextResponse.json(orchestrator.getTasks());
@@ -36,3 +37,6 @@ export async function GET() {
     );
   }
 }
+
+export const POST = withApiLogging(postHandler, 'tasks');
+export const GET = withApiLogging(getHandler, 'tasks');

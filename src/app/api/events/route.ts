@@ -1,9 +1,12 @@
 import { eventBus } from '@/lib/agentic/events/emitter';
+import { log } from '@/lib/agentic/logger';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const encoder = new TextEncoder();
+
+  log.info('api:events', 'SSE connection opened');
 
   const stream = new ReadableStream({
     start(controller) {
@@ -18,6 +21,7 @@ export async function GET() {
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         } catch {
+          log.debug('api:events', 'SSE connection closed (write failed)');
           unsubscribe();
         }
       });
@@ -27,6 +31,7 @@ export async function GET() {
         try {
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
         } catch {
+          log.debug('api:events', 'SSE connection closed (heartbeat failed)');
           clearInterval(heartbeat);
           unsubscribe();
         }

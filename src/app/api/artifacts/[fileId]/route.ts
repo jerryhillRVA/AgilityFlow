@@ -1,7 +1,8 @@
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET(
+async function getHandler(
   _request: NextRequest,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
@@ -31,3 +32,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withApiLogging(getHandler, 'artifacts');

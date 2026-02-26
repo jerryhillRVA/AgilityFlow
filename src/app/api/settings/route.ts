@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSettingsService } from '@/lib/agentic/settings-service';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET() {
+async function getHandler() {
   try {
     const service = getSettingsService();
     const data = await service.getClientSettings();
@@ -14,7 +15,7 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: NextRequest) {
   try {
     const body = await request.json();
     const service = getSettingsService();
@@ -32,3 +33,6 @@ export async function PATCH(request: Request) {
     );
   }
 }
+
+export const GET = withApiLogging(getHandler, 'settings');
+export const PATCH = withApiLogging(patchHandler, 'settings');

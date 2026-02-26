@@ -2,6 +2,7 @@ import matter from 'gray-matter';
 import fs from 'fs/promises';
 import path from 'path';
 import type { AgentDefinition, SkillDefinition, CommandDefinition, TemplateDefinition } from '@/types/agent';
+import { log } from './logger';
 
 interface ParsedFile {
   id: string;
@@ -30,6 +31,13 @@ export class CapabilityRegistry {
       this.loadTemplates(),
       this.loadContext(),
     ]);
+    log.info('registry', `Definitions loaded`, {
+      agents: this.agents.size,
+      skills: this.skills.size,
+      commands: this.commands.size,
+      templates: this.templates.size,
+      context: this.context.size,
+    });
   }
 
   private async loadAgents(): Promise<void> {
@@ -123,7 +131,7 @@ export class CapabilityRegistry {
       }
       return results;
     } catch (error) {
-      console.error(`[registry] Failed to read markdown from ${dir}:`, String(error));
+      log.error('registry', `Failed to read markdown from ${dir}`, { dir, error: String(error) });
       return [];
     }
   }

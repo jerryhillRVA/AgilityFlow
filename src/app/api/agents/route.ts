@@ -1,7 +1,8 @@
 import { getRegistry } from '@/lib/agentic/registry';
 import { NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET() {
+async function getHandler() {
   try {
     const registry = await getRegistry();
     return NextResponse.json(registry.listAgents());
@@ -12,3 +13,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withApiLogging(getHandler, 'agents');

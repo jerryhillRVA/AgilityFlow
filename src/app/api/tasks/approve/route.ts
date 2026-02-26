@@ -1,12 +1,13 @@
 import { getOrchestrator } from '@/lib/agentic/orchestrator';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
 /**
  * POST /api/tasks/approve
  * Approve planned subtasks for execution.
  * Body: { taskIds: string[] }
  */
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const body = await request.json();
     const { taskIds } = body;
@@ -20,7 +21,6 @@ export async function POST(request: NextRequest) {
 
     const orchestrator = await getOrchestrator();
 
-    // Validate all task IDs exist
     const invalidIds = taskIds.filter((id: string) => !orchestrator.getTask(id));
     if (invalidIds.length > 0) {
       return NextResponse.json(
@@ -29,7 +29,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Execute approved tasks (async, non-blocking)
     orchestrator.executeApproved(taskIds);
 
     return NextResponse.json({
@@ -43,3 +42,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withApiLogging(postHandler, 'tasks/approve');

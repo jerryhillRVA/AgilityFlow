@@ -36,6 +36,9 @@ Agility Flow is a markdown-driven agentic platform built with Next.js 16 (App Ro
 | `src/lib/agentic/prompt-assembler.ts` | Builds system prompt from agent def + skills + context |
 | `src/lib/agentic/adapters/` | Model adapters: `mock.ts`, `anthropic.ts`, factory in `index.ts` |
 | `src/lib/agentic/tools/` | Tool router, schemas, Agentic FS tool handlers |
+| `src/lib/agentic/logger.ts` | Structured logger with timestamps, trace IDs, LOG_LEVEL, LOG_FILE |
+| `src/lib/agentic/trace.ts` | AsyncLocalStorage-based trace context propagation |
+| `src/lib/api-logger.ts` | Reusable API route wrapper with trace + timing |
 | `src/lib/agentic/events/emitter.ts` | In-process event bus (pub/sub, 200-event buffer) |
 | `src/lib/agentic/fs-paths.ts` | Namespace constants, path builders, base directory lists |
 | `src/lib/agentic/fs-init.ts` | Idempotent initialization for project/sprint/agent/registry |
@@ -63,6 +66,8 @@ npm run build    # production build with type checking
 - `AGENTIC_FS_URL` — Agentic FS service URL (default `http://localhost:8000`)
 - `AGENTIC_FS_TENANT` — tenant scope (default `default`)
 - `ANTHROPIC_API_KEY` — empty = mock mode, set = live Anthropic calls
+- `LOG_LEVEL` — `debug` | `info` | `warn` | `error` (default: `debug` in dev, `info` in production)
+- `LOG_FILE` — when set, log output is **tee'd** to this file in addition to stdout/stderr (e.g. `server.log`)
 
 ## Architecture Patterns
 
@@ -86,6 +91,9 @@ The orchestrator delegates to sub-agents via the `delegate_to_agent` tool, which
 
 ### Agentic FS Data Model
 Each project maps to its own Agentic FS tenant (project-per-tenant). A `_registry` tenant holds org/portfolio/project hierarchy. 6 namespaces per project: tasks, sprints, events, artifacts, memory, knowledge. All path construction uses typed builders in `src/lib/agentic/fs-paths.ts`. Initialization functions in `src/lib/agentic/fs-init.ts`. Full reference: `docs/data-model.md`.
+
+### Structured Logging
+All server-side code uses a structured logger (`src/lib/agentic/logger.ts`) with tag-based prefixes. Trace IDs propagated via `AsyncLocalStorage` (`src/lib/agentic/trace.ts`) are automatically included in every log line. API routes are wrapped with `withApiLogging()` (`src/lib/api-logger.ts`) which generates trace IDs and logs request/response timing. Output always goes to stdout/stderr (visible in the launch terminal); when `LOG_FILE` is set, output is also written to the specified file. Format: `timestamp [agilityflow:tag] [trace:id] message {json}`.
 
 ### SSE for Real-Time Events
 The `/api/events` route uses Server-Sent Events (not WebSocket) to stream agent activity to the browser. The `ActivityFeed` component subscribes via `EventSource`. Events are buffered in the `EventBus` (last 200) so late-joining clients get recent history.
@@ -130,6 +138,25 @@ version: string
 ```
 
 The markdown body below the frontmatter becomes the agent's system prompt instructions (for agents) or injected content (for skills/templates).
+
+## Logging & Debugging
+
+```bash
+# Start with full debug logging to file + terminal
+LOG_LEVEL=debug LOG_FILE=server.log npm run dev
+
+# Start with info-level logging (less verbose)
+LOG_LEVEL=info LOG_FILE=server.log npm run dev
+
+# Trace a specific task through the entire pipeline
+grep trace:<id> server.log
+```
+
+- **Log levels:** `debug` (verbose, dev default), `info` (key operations, prod default), `warn`, `error`
+- **Format:** `2026-02-25T14:30:00.123Z [agilityflow:tag] [trace:a1b2c3d4] message {"key":"value"}`
+- **Output:** All log output always streams to stdout/stderr (visible in the launch terminal). When `LOG_FILE` is set, the same output is also written to the file — the file is an extra copy, never a replacement.
+- **Trace IDs:** Every API request generates an 8-char hex trace ID that propagates through orchestrator → executor → model calls → tool calls. Use `grep trace:<id> server.log` to reconstruct a task's full lifecycle.
+- **Key log tags:** `api`, `orchestrator`, `executor`, `anthropic`, `mock`, `adapter`, `tool-router`, `fs-tool`, `prompt-assembler`, `wave-executor`, `context-builder`, `registry`, `event-bus`
 
 ## Guardrails
 

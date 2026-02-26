@@ -1,7 +1,8 @@
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function POST(request: NextRequest) {
+async function postHandler(request: NextRequest) {
   try {
     const { query, namespace } = await request.json();
 
@@ -28,3 +29,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withApiLogging(postHandler, 'ask');

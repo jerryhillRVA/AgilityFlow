@@ -1,7 +1,8 @@
 import { getRegistry } from '@/lib/agentic/registry';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function GET(request: NextRequest) {
+async function getHandler(request: NextRequest) {
   try {
     const registry = await getRegistry();
     const type = request.nextUrl.searchParams.get('type');
@@ -30,3 +31,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withApiLogging(getHandler, 'definitions');

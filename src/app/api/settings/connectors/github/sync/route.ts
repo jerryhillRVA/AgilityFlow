@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getGitHubConnector } from '@/lib/agentic/connectors/github-connector';
+import { withApiLogging } from '@/lib/api-logger';
 
-export async function POST() {
+async function postHandler() {
   try {
     const connector = getGitHubConnector();
     // Fire and forget — sync runs in background
@@ -14,3 +15,5 @@ export async function POST() {
     );
   }
 }
+
+export const POST = withApiLogging(postHandler, 'github/sync');

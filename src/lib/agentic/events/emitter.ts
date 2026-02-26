@@ -12,7 +12,11 @@ class EventBus {
 
   subscribe(listener: EventListener): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    log.debug('event-bus', `Subscriber added`, { subscriberCount: this.listeners.size });
+    return () => {
+      this.listeners.delete(listener);
+      log.debug('event-bus', `Subscriber removed`, { subscriberCount: this.listeners.size });
+    };
   }
 
   emit(event: AgentEvent): void {
@@ -44,10 +48,10 @@ class EventBus {
         `${event.id}.json`,
         { namespace: NS.EVENTS, path: paths.events.dir(date) },
       ).catch((err) => {
-        log.debug('event-bus', `Failed to persist event ${event.id}`, { error: String(err) });
+        log.warn('event-bus', `Failed to persist event ${event.id}`, { error: String(err) });
       });
     } catch (err) {
-      log.debug('event-bus', `Failed to persist event ${event.id}`, { error: String(err) });
+      log.warn('event-bus', `Failed to persist event ${event.id}`, { error: String(err) });
     }
   }
 }

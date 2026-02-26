@@ -1,5 +1,6 @@
 import type { ModelAdapter, ModelRequest, ModelResponse, ContentBlock } from './model-adapter';
 import { v4 as uuid } from 'uuid';
+import { log } from '../logger';
 
 export class MockAdapter implements ModelAdapter {
   name = 'mock';
@@ -26,47 +27,77 @@ export class MockAdapter implements ModelAdapter {
     );
     const isFirstCall = !hasToolResults;
 
+    let simulationPath: string;
+    let response: ModelResponse;
+
     // ReWOO single-shot mode: return artifacts in delimited format (no tools)
     if (isReWOO) {
-      return this.simulateReWOOResponse(userMsg, isTechnicalWriter, isQAAnalyst, isDesigner, isDesignReviewer);
+      simulationPath = 'ReWOO';
+      response = this.simulateReWOOResponse(userMsg, isTechnicalWriter, isQAAnalyst, isDesigner, isDesignReviewer);
     }
 
     // Orchestrator in plan mode: create subtasks instead of delegating
-    if (isOrchestrator && isPlanMode && hasTools && isFirstCall) {
-      return this.simulatePlanDecomposition(userMsg);
+    else if (isOrchestrator && isPlanMode && hasTools && isFirstCall) {
+      simulationPath = 'orchestrator-plan';
+      response = this.simulatePlanDecomposition(userMsg);
     }
 
     // Orchestrator in execute mode: delegate
-    if (isOrchestrator && !isPlanMode && hasTools && isFirstCall) {
+    else if (isOrchestrator && !isPlanMode && hasTools && isFirstCall) {
       const hasDelegationTool = request.tools?.some(t => t.name === 'delegate_to_agent');
       if (hasDelegationTool) {
-        return this.simulateDelegation(userMsg);
+        simulationPath = 'orchestrator-delegate';
+        response = this.simulateDelegation(userMsg);
+      } else {
+        simulationPath = 'text-default';
+        response = this.simulateTextResponse(userMsg, isOrchestrator);
       }
     }
 
     // Technical Writer: create documentation artifacts
-    if (isTechnicalWriter && hasTools && isFirstCall) {
-      return this.simulateDocumentationGeneration(userMsg);
+    else if (isTechnicalWriter && hasTools && isFirstCall) {
+      simulationPath = 'technical-writer';
+      response = this.simulateDocumentationGeneration(userMsg);
     }
 
     // QA Analyst: create test case artifacts
-    if (isQAAnalyst && hasTools && isFirstCall) {
-      return this.simulateTestCaseGeneration(userMsg);
+    else if (isQAAnalyst && hasTools && isFirstCall) {
+      simulationPath = 'qa-analyst';
+      response = this.simulateTestCaseGeneration(userMsg);
     }
 
     // Designer agents: create design artifacts
-    if (isDesigner && hasTools && isFirstCall) {
+    else if (isDesigner && hasTools && isFirstCall) {
       const isBackend = systemPrompt.includes('backend');
-      return this.simulateDesignArtifact(userMsg, isBackend);
+      simulationPath = isBackend ? 'backend-designer' : 'frontend-designer';
+      response = this.simulateDesignArtifact(userMsg, isBackend);
     }
 
     // Design Reviewer: create verification artifacts
-    if (isDesignReviewer && hasTools && isFirstCall) {
-      return this.simulateDesignReviewArtifact(userMsg);
+    else if (isDesignReviewer && hasTools && isFirstCall) {
+      simulationPath = 'design-reviewer';
+      response = this.simulateDesignReviewArtifact(userMsg);
     }
 
     // Default: return a text response (second call or unknown agent)
-    return this.simulateTextResponse(userMsg, isOrchestrator);
+    else {
+      simulationPath = 'text-default';
+      response = this.simulateTextResponse(userMsg, isOrchestrator);
+    }
+
+    const textBlocks = response.content.filter(b => b.type === 'text').length;
+    const toolUseBlocks = response.content.filter(b => b.type === 'tool_use').length;
+    log.debug('mock', `Mock response (call #${this.callCount})`, {
+      simulationPath,
+      isFirstCall,
+      stopReason: response.stopReason,
+      textBlocks,
+      toolUseBlocks,
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+    });
+
+    return response;
   }
 
   private simulatePlanDecomposition(userMsg: string): ModelResponse {

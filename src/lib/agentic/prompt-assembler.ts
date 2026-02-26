@@ -6,6 +6,7 @@ import type { Task } from '@/types/task';
 import type { CapabilityRegistry } from './registry';
 import type { AgentDefinition } from '@/types/agent';
 import { getToolSchemas } from './tools/builtin-tools';
+import { log } from './logger';
 
 export interface AssembledPrompt {
   systemPrompt: string;
@@ -58,10 +59,14 @@ export class PromptAssembler {
   private resolveModel(agent: AgentDefinition): string | undefined {
     if (agent.model) {
       // Strip provider prefix: "anthropic/claude-opus-4-6" → "claude-opus-4-6"
-      return agent.model.includes('/') ? agent.model.split('/').pop()! : agent.model;
+      const resolved = agent.model.includes('/') ? agent.model.split('/').pop()! : agent.model;
+      log.debug('prompt-assembler', `resolveModel: explicit model for ${agent.id}`, { model: resolved });
+      return resolved;
     }
     const tiers = this.getModelConfig();
-    return tiers[agent.tier]?.['anthropic'];
+    const resolved = tiers[agent.tier]?.['anthropic'];
+    log.debug('prompt-assembler', `resolveModel: tier "${agent.tier}" → ${resolved}`, { agentId: agent.id, tier: agent.tier, model: resolved });
+    return resolved;
   }
 
   /** Builds common system prompt parts (agent def + skills + context) */
@@ -101,12 +106,15 @@ export class PromptAssembler {
 
     const tools = getToolSchemas(agent.tools);
 
+    const model = this.resolveModel(agent);
+    log.debug('prompt-assembler', `Assembled ReAct prompt for ${agentId}`, { agentId, skillCount: agent.skills.length, toolCount: tools.length, model, systemPromptLength: systemParts.join('\n').length });
+
     return {
       systemPrompt: systemParts.join('\n'),
       userMessage,
       tools,
       maxIterations: agent.maxIterations,
-      model: this.resolveModel(agent),
+      model,
     };
   }
 
@@ -129,11 +137,14 @@ export class PromptAssembler {
       `\n\n## Pre-Fetched Context\n\n${context}`,
     ].join('');
 
+    const model = this.resolveModel(agent);
+    log.debug('prompt-assembler', `Assembled ReWOO prompt for ${agentId}`, { agentId, model, contextLength: context.length, systemPromptLength: systemParts.join('\n').length });
+
     return {
       systemPrompt: systemParts.join('\n'),
       userMessage,
       tools: [], // No tools for ReWOO — all context is pre-fetched
-      model: this.resolveModel(agent),
+      model,
     };
   }
 }

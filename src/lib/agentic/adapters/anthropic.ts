@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ModelAdapter, ModelRequest, ModelResponse, ContentBlock } from './model-adapter';
+import { log, startTimer } from '../logger';
 
 export class AnthropicAdapter implements ModelAdapter {
   name = 'anthropic';
@@ -21,16 +22,17 @@ export class AnthropicAdapter implements ModelAdapter {
           error instanceof Anthropic.RateLimitError ||
           (error instanceof Error && 'status' in error && (error as { status: number }).status === 429);
 
-        if (!isRateLimit || attempt === maxRetries) throw error;
+        if (!isRateLimit || attempt === maxRetries) {
+          log.error('anthropic', `API call failed`, { model: params.model, attempt: attempt + 1, isRateLimit, error: String(error) });
+          throw error;
+        }
 
         // Exponential backoff: 15s, 30s, 60s, 120s, 240s
         const backoffMs = 15_000 * Math.pow(2, attempt);
         const retryAfter = this.parseRetryAfter(error);
         const waitMs = retryAfter ? retryAfter * 1000 : backoffMs;
 
-        console.log(
-          `[anthropic] Rate limited (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${(waitMs / 1000).toFixed(0)}s...`,
-        );
+        log.warn('anthropic', `Rate limited (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${(waitMs / 1000).toFixed(0)}s`, { model: params.model, attempt: attempt + 1, maxRetries: maxRetries + 1, waitMs });
         await new Promise(resolve => setTimeout(resolve, waitMs));
       }
     }
@@ -51,6 +53,10 @@ export class AnthropicAdapter implements ModelAdapter {
 
   async chat(request: ModelRequest): Promise<ModelResponse> {
     const model = request.model || 'claude-sonnet-4-5-20250929';
+    const toolCount = request.tools?.length || 0;
+
+    log.debug('anthropic', `API call starting`, { model, maxTokens: request.maxTokens || 21000, toolCount, messageCount: request.messages.length });
+    const elapsed = startTimer();
 
     const params: Anthropic.MessageCreateParams = {
       model,
@@ -82,6 +88,21 @@ export class AnthropicAdapter implements ModelAdapter {
 
     const response = await this.chatWithRetry(params);
 
+    const inputTokens = response.usage.input_tokens;
+    const outputTokens = response.usage.output_tokens;
+    const cacheRead = (response.usage as unknown as Record<string, number>).cache_read_input_tokens || 0;
+    const cacheCreation = (response.usage as unknown as Record<string, number>).cache_creation_input_tokens || 0;
+
+    log.info('anthropic', `API call completed`, {
+      model,
+      stopReason: response.stop_reason,
+      inputTokens,
+      outputTokens,
+      cacheRead,
+      cacheCreation,
+      elapsedMs: elapsed(),
+    });
+
     return {
       content: response.content.map((block): ContentBlock => {
         if (block.type === 'text') {
@@ -99,10 +120,10 @@ export class AnthropicAdapter implements ModelAdapter {
       }),
       stopReason: response.stop_reason || 'end_turn',
       usage: {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheReadInputTokens: (response.usage as unknown as Record<string, number>).cache_read_input_tokens || 0,
-        cacheCreationInputTokens: (response.usage as unknown as Record<string, number>).cache_creation_input_tokens || 0,
+        inputTokens,
+        outputTokens,
+        cacheReadInputTokens: cacheRead,
+        cacheCreationInputTokens: cacheCreation,
       },
     };
   }

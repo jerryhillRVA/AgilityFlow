@@ -7,7 +7,7 @@ import { buildAgentContext } from './context-builder';
 import { parseArtifacts } from './artifact-parser';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
-import { log } from './logger';
+import { log, startTimer } from './logger';
 import { getRegistry } from './registry';
 
 interface WaveGroup {
@@ -50,6 +50,7 @@ export class WaveExecutor {
     onSubtaskUpdate?: (subtask: Task) => void,
   ): Promise<void> {
     const waves = this.groupByWave(subtasks);
+    log.info('wave-executor', `Starting wave execution for "${parentTask.title}"`, { parentTaskId: parentTask.id, waveCount: waves.length, totalSubtasks: subtasks.length });
 
     for (const wave of waves) {
       eventBus.emit(createEvent(
@@ -103,6 +104,7 @@ export class WaveExecutor {
     subtask.updatedAt = new Date().toISOString();
     onSubtaskUpdate?.(subtask);
 
+    const subtaskElapsed = startTimer();
     try {
       // Build pre-fetched context from parent + prior artifacts
       const priorArtifacts = parentTask.artifacts || [];
@@ -126,10 +128,12 @@ export class WaveExecutor {
         // Tier 2: ReAct iterative loop
         const maxIter = await this.getIterationBudget(agentId);
         log.info('wave-executor', `Falling back to ReAct for ${agentId} with ${maxIter} iterations`, { subtaskId: subtask.id });
+        const reactElapsed = startTimer();
         const executor = new AgentExecutor(this.assembler, this.adapter, taskToolRouter);
         const result = await executor.execute(
           agentId, subtask, context, maxIter,
         );
+        log.info('wave-executor', `ReAct completed for ${agentId}`, { subtaskId: subtask.id, iterations: result.usage.iterationDetails.length, totalInput: result.usage.totalInputTokens, totalOutput: result.usage.totalOutputTokens, elapsedMs: reactElapsed() });
         this.recordUsage(subtask, result.response, result.usage);
       }
 
@@ -165,6 +169,7 @@ export class WaveExecutor {
           subtaskId: subtask.id,
           agentId,
           artifactCount,
+          elapsedMs: subtaskElapsed(),
         });
 
         eventBus.emit(createEvent(
@@ -181,7 +186,7 @@ export class WaveExecutor {
       subtask.updatedAt = new Date().toISOString();
       onSubtaskUpdate?.(subtask);
 
-      log.error('wave-executor', `Agent ${agentId} failed on "${subtask.title}": ${String(error)}`, { subtaskId: subtask.id });
+      log.error('wave-executor', `Agent ${agentId} failed on "${subtask.title}": ${String(error)}`, { subtaskId: subtask.id, elapsedMs: subtaskElapsed(), stack: error instanceof Error ? error.stack : undefined });
       eventBus.emit(createEvent(
         'wave:agent_failed',
         `Agent ${agentId} failed on "${subtask.title}": ${String(error)}`,
@@ -204,11 +209,20 @@ export class WaveExecutor {
   ): Promise<void> {
     const prompt = this.assembler.assembleReWOO(agentId, subtask, context);
 
+    const rewooElapsed = startTimer();
     const response = await this.adapter.chat({
       systemPrompt: prompt.systemPrompt,
       messages: [{ role: 'user', content: prompt.userMessage }],
       model: prompt.model,
       maxTokens: 21000,
+    });
+
+    log.info('wave-executor', `ReWOO model call completed for ${agentId}`, {
+      subtaskId: subtask.id,
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      cacheRead: response.usage.cacheReadInputTokens,
+      elapsedMs: rewooElapsed(),
     });
 
     // Extract text from response
