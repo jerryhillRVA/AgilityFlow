@@ -46,7 +46,9 @@ async function patchHandler(
 
     // Decomposition gate: plan-mode task can't leave backlog until orchestrator finishes
     if (previousStatus === 'backlog' && newStatus === 'todo') {
-      if (task.decompositionComplete === false) {
+      const isDecomposing = task.decompositionComplete === false
+        || (task.executionMode === 'plan' && task.decompositionComplete !== true && task.subtaskIds.length === 0);
+      if (isDecomposing) {
         return NextResponse.json({
           error: 'Task is still being decomposed by the orchestrator. Please wait for planning to complete.',
         }, { status: 409 });

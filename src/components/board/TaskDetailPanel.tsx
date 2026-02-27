@@ -168,7 +168,8 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
               <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
                 Move Task
               </div>
-              {task.decompositionComplete === false && task.status === 'backlog' && (
+              {task.status === 'backlog' && (task.decompositionComplete === false
+                || (task.executionMode === 'plan' && task.decompositionComplete !== true && task.subtaskIds.length === 0)) && (
                 <div className="flex items-center gap-2 p-2 rounded mb-2" style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
                   <Loader2 size={12} className="animate-spin" style={{ color: 'var(--accent-violet)' }} />
                   <span className="text-[11px]" style={{ color: 'var(--accent-violet)' }}>

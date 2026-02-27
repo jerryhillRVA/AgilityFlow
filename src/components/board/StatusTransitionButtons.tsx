@@ -27,7 +27,9 @@ export function StatusTransitionButtons({ task, onStatusChange, compact, subtask
   if (task.parentTaskId) return null;
 
   // Block transitions from backlog while decomposition is in progress
-  if (task.status === 'backlog' && task.decompositionComplete === false) {
+  const isDecomposing = task.decompositionComplete === false
+    || (task.executionMode === 'plan' && task.decompositionComplete !== true && task.subtaskIds.length === 0);
+  if (task.status === 'backlog' && isDecomposing) {
     return (
       <div className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded" style={{ background: 'rgba(139, 92, 246, 0.1)', color: 'var(--accent-violet)' }}>
         <Loader2 size={12} className="animate-spin" />
