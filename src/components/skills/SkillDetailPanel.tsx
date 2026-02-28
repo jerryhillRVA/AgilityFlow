@@ -3,6 +3,7 @@
 import { useEffect, useCallback } from 'react';
 import { X, Puzzle } from 'lucide-react';
 import type { SkillDefinition } from '@/types/agent';
+import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 
 interface SkillDetailPanelProps {
   skill: SkillDefinition;
@@ -103,23 +104,33 @@ export function SkillDetailPanel({ skill, onClose }: SkillDetailPanelProps) {
           )}
 
           {/* Implementation / Body */}
-          {skill.body && (
+          {skill.body ? (
             <div>
               <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
                 Implementation
               </div>
-              <pre
-                className="font-mono text-[10px] p-3 rounded overflow-y-auto whitespace-pre-wrap border"
+              <div
+                className="p-3 rounded overflow-y-auto border"
                 style={{
                   background: 'var(--bg-tertiary)',
-                  color: 'var(--text-primary)',
                   borderColor: 'var(--border)',
                   maxHeight: '400px',
                 }}
+                role="region"
                 aria-label="Skill implementation body, scrollable"
+                tabIndex={0}
               >
-                {skill.body}
-              </pre>
+                <MarkdownRenderer content={skill.body} className="text-xs" />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+                Implementation
+              </div>
+              <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                No implementation content available
+              </p>
             </div>
           )}
 

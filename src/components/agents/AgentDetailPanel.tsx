@@ -3,6 +3,7 @@
 import { useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import type { AgentDefinition, ModelTier } from '@/types/agent';
+import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 
 interface AgentDetailPanelProps {
   agent: AgentDefinition;
@@ -188,18 +189,25 @@ export function AgentDetailPanel({ agent, onClose }: AgentDetailPanelProps) {
             <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
               System Prompt
             </div>
-            <pre
-              className="font-mono text-[10px] p-3 rounded overflow-y-auto whitespace-pre-wrap border"
-              style={{
-                background: 'var(--bg-tertiary)',
-                color: 'var(--text-primary)',
-                borderColor: 'var(--border)',
-                maxHeight: '300px',
-              }}
-              aria-label="Agent system prompt, scrollable"
-            >
-              {agent.systemPrompt}
-            </pre>
+            {agent.systemPrompt ? (
+              <div
+                className="p-3 rounded overflow-y-auto border"
+                style={{
+                  background: 'var(--bg-tertiary)',
+                  borderColor: 'var(--border)',
+                  maxHeight: '300px',
+                }}
+                role="region"
+                aria-label="Agent system prompt, scrollable"
+                tabIndex={0}
+              >
+                <MarkdownRenderer content={agent.systemPrompt} className="text-xs" />
+              </div>
+            ) : (
+              <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                No system prompt available
+              </p>
+            )}
           </div>
 
           {/* Constraints */}
