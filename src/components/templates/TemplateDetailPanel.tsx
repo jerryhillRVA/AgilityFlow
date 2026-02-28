@@ -3,6 +3,7 @@
 import { useEffect, useCallback } from 'react';
 import { X, FileText } from 'lucide-react';
 import type { TemplateDefinition } from '@/types/agent';
+import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 
 interface TemplateDetailPanelProps {
   template: TemplateDefinition;
@@ -87,23 +88,33 @@ export function TemplateDetailPanel({ template, onClose }: TemplateDetailPanelPr
           )}
 
           {/* Body */}
-          {template.body && (
+          {template.body ? (
             <div>
               <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
                 Template Body
               </div>
-              <pre
-                className="font-mono text-[10px] p-3 rounded overflow-y-auto whitespace-pre-wrap border"
+              <div
+                className="p-3 rounded overflow-y-auto border"
                 style={{
                   background: 'var(--bg-tertiary)',
-                  color: 'var(--text-primary)',
                   borderColor: 'var(--border)',
                   maxHeight: '400px',
                 }}
+                role="region"
                 aria-label="Template body content, scrollable"
+                tabIndex={0}
               >
-                {template.body}
-              </pre>
+                <MarkdownRenderer content={template.body} className="text-xs" />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+                Template Body
+              </div>
+              <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                No template content available
+              </p>
             </div>
           )}
 
