@@ -15,7 +15,7 @@ tools:
 delegatesTo: []
 artifactCategory: verification
 contextCategories: [design, verification]
-iterationBudget: 8
+iterationBudget: 20
 ---
 
 # Design Reviewer Agent

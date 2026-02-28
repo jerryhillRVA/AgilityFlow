@@ -15,7 +15,7 @@ tools:
 delegatesTo: []
 artifactCategory: design
 contextCategories: [requirements, design]
-iterationBudget: 10
+iterationBudget: 20
 requiresArtifacts: true
 memory:
   namespace: memory

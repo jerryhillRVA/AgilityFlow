@@ -15,7 +15,7 @@ tools:
 delegatesTo: []
 artifactCategory: verification
 contextCategories: [requirements, design]
-iterationBudget: 8
+iterationBudget: 20
 ---
 
 # QA Analyst Agent

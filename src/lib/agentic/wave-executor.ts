@@ -24,19 +24,24 @@ interface WaveGroup {
  *   Tier 2: ReAct iterative loop (existing AgentExecutor)
  */
 export class WaveExecutor {
-  private static readonly DEFAULT_ITERATIONS = 8;
-
   constructor(
     private assembler: PromptAssembler,
     private adapter: ModelAdapter,
     private toolRouter: ToolRouter,
   ) {}
 
-  /** Read iterationBudget from agent definition, fall back to default */
+  /** Read iterationBudget (or maxIterations fallback) from agent definition */
   private async getIterationBudget(agentId: string): Promise<number> {
+    const SAFETY_NET = 100;
     const registry = await getRegistry();
     const agentDef = registry.getAgent(agentId);
-    return agentDef?.iterationBudget ?? WaveExecutor.DEFAULT_ITERATIONS;
+    if (!agentDef) return SAFETY_NET;
+    const budget = agentDef.iterationBudget ?? agentDef.maxIterations;
+    if (budget === undefined) {
+      log.warn('wave-executor', `Agent "${agentId}" has no iterationBudget or maxIterations — using safety-net`, { agentId, budget: SAFETY_NET });
+      return SAFETY_NET;
+    }
+    return budget;
   }
 
   /**

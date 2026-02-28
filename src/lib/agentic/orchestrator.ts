@@ -26,7 +26,6 @@ export class Orchestrator {
   private initialized = false;
   private planOnlyTasks: Set<string> = new Set();
   private currentParentTaskId: string | null = null;
-  private static readonly DEFAULT_SUB_AGENT_ITERATIONS = 8;
 
   isReady(): boolean {
     return this.initialized && this.registry?.agents?.size > 0;
@@ -145,12 +144,17 @@ export class Orchestrator {
    * Checks iterationBudget first, then maxIterations, then falls back to default.
    */
   private getAgentIterationBudget(agentId: string): number {
+    const SAFETY_NET = 100;
     const agentDef = this.registry.getAgent(agentId);
     if (!agentDef) {
-      log.debug('orchestrator', `No agent definition for "${agentId}", using default iteration budget`, { agentId, budget: Orchestrator.DEFAULT_SUB_AGENT_ITERATIONS });
-      return Orchestrator.DEFAULT_SUB_AGENT_ITERATIONS;
+      log.warn('orchestrator', `No agent definition for "${agentId}" — using safety-net iteration budget`, { agentId, budget: SAFETY_NET });
+      return SAFETY_NET;
     }
-    const budget = agentDef.iterationBudget ?? agentDef.maxIterations ?? Orchestrator.DEFAULT_SUB_AGENT_ITERATIONS;
+    const budget = agentDef.iterationBudget ?? agentDef.maxIterations;
+    if (budget === undefined) {
+      log.warn('orchestrator', `Agent "${agentId}" has no iterationBudget or maxIterations — using safety-net`, { agentId, budget: SAFETY_NET });
+      return SAFETY_NET;
+    }
     log.debug('orchestrator', `Iteration budget for "${agentId}": ${budget}`, { agentId, iterationBudget: agentDef.iterationBudget, maxIterations: agentDef.maxIterations, resolved: budget });
     return budget;
   }

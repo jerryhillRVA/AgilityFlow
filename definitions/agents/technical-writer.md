@@ -15,7 +15,7 @@ tools:
 delegatesTo: []
 artifactCategory: requirements
 contextCategories: [requirements, design, verification]
-iterationBudget: 8
+iterationBudget: 20
 ---
 
 # Technical Writer Agent

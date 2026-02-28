@@ -24,7 +24,7 @@ export interface ToolCallRecord {
   output: string;
 }
 
-const DEFAULT_MAX_ITERATIONS = 50;
+const SAFETY_NET_MAX_ITERATIONS = 100;
 const TOOL_RESULT_TRUNCATE_LENGTH = 500;
 
 export class AgentExecutor {
@@ -36,7 +36,10 @@ export class AgentExecutor {
 
   async execute(agentId: string, task: Task, additionalContext?: string, maxIterationsOverride?: number): Promise<ExecutionResult> {
     const prompt = this.assembler.assemble(agentId, task, additionalContext);
-    const maxIterations = maxIterationsOverride || prompt.maxIterations || DEFAULT_MAX_ITERATIONS;
+    const maxIterations = maxIterationsOverride ?? prompt.maxIterations ?? SAFETY_NET_MAX_ITERATIONS;
+    if (!maxIterationsOverride && !prompt.maxIterations) {
+      log.warn('executor', `No iteration budget set for ${agentId} — using safety-net (${SAFETY_NET_MAX_ITERATIONS}). Set iterationBudget or maxIterations in the agent definition.`, { taskId: task.id });
+    }
     const totalElapsed = startTimer();
     log.info('executor', `Starting ReAct loop for ${agentId} on "${task.title}" (max ${maxIterations} iterations)`, { taskId: task.id, model: prompt.model });
     const messages: ModelMessage[] = [{ role: 'user', content: prompt.userMessage }];

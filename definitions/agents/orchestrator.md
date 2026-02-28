@@ -14,6 +14,7 @@ tools:
   - agentic_fs_search
   - agentic_fs_write
   - agentic_fs_list
+iterationBudget: 50
 maxIterations: 50
 delegatesTo:
   - backend-designer
