@@ -24,10 +24,9 @@ export function TaskCard({ task, onClick, onStatusChange, isSubtask, subtaskCoun
   if (isSubtask) {
     return (
       <div
-        className="p-2 rounded border-l-2 transition-colors cursor-pointer"
+        className="p-2 rounded border-l-2 cursor-pointer elevation-1"
         style={{
           background: 'var(--bg-secondary)',
-          borderColor: 'var(--border)',
           borderLeftColor: 'var(--accent-violet)',
           borderTopWidth: '1px',
           borderRightWidth: '1px',
@@ -35,6 +34,10 @@ export function TaskCard({ task, onClick, onStatusChange, isSubtask, subtaskCoun
           borderTopStyle: 'solid',
           borderRightStyle: 'solid',
           borderBottomStyle: 'solid',
+          borderTopColor: 'var(--glass-border)',
+          borderRightColor: 'var(--glass-border)',
+          borderBottomColor: 'var(--glass-border)',
+          transition: 'box-shadow var(--duration-normal) var(--ease-out-expo)',
         }}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick?.(); }}
@@ -91,8 +94,7 @@ export function TaskCard({ task, onClick, onStatusChange, isSubtask, subtaskCoun
 
   return (
     <div
-      className="p-3 rounded border transition-colors cursor-pointer"
-      style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}
+      className="p-3 rounded-lg cursor-pointer card-elevated"
       onClick={onClick}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick?.(); }}
       role="button"

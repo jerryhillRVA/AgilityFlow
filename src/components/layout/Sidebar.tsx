@@ -11,6 +11,7 @@ import {
   Building2, TestTube, Rocket, Container,
   Activity, Globe, Settings, Home, ChevronDown,
 } from 'lucide-react';
+import { ThemeToggle } from './ThemeToggle';
 import type { LucideIcon } from 'lucide-react';
 
 interface NavItem {
@@ -75,7 +76,13 @@ function loadCollapsedState(): Record<string, boolean> {
   if (typeof window === 'undefined') return {};
   try {
     const stored = localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
-    return stored ? JSON.parse(stored) : {};
+    if (stored) return JSON.parse(stored);
+    // Default: all sections collapsed
+    const defaults: Record<string, boolean> = {};
+    for (const section of navSections) {
+      defaults[section.label] = true;
+    }
+    return defaults;
   } catch {
     return {};
   }
@@ -106,22 +113,29 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 flex-shrink-0 border-r overflow-y-auto"
-      style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
+      style={{
+        borderColor: 'var(--glass-border)',
+        background: 'var(--gradient-sidebar)',
+        backdropFilter: 'blur(var(--glass-blur))',
+        WebkitBackdropFilter: 'blur(var(--glass-blur))',
+        boxShadow: '1px 0 12px rgba(0, 0, 0, 0.3)',
+      }}>
       <div className="p-4">
-        <Link href="/" className="flex items-center gap-2 mb-6">
-          <Building2 size={20} style={{ color: 'var(--accent-cyan)' }} />
-          <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+        <Link href="/" className="flex items-center gap-2.5 mb-6">
+          <Building2 size={22} style={{ color: 'var(--accent-cyan)' }} />
+          <span className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
             Agility Flow
           </span>
         </Link>
 
         <Link href="/"
-          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs mb-4 transition-colors"
+          className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm mb-4 sidebar-nav-item ${pathname === '/' ? 'nav-active-indicator' : ''}`}
           style={{
             background: pathname === '/' ? 'var(--bg-tertiary)' : 'transparent',
             color: pathname === '/' ? 'var(--accent)' : 'var(--text-secondary)',
+            boxShadow: pathname === '/' ? 'var(--shadow-sm)' : 'none',
           }}>
-          <Home size={14} />
+          <Home size={16} />
           Dashboard
         </Link>
 
@@ -129,45 +143,52 @@ export function Sidebar() {
           <div key={section.label} className="mb-4">
             <button
               onClick={() => toggleSection(section.label)}
-              className="flex items-center justify-between w-full px-3 py-1 text-[9px] font-semibold tracking-widest uppercase cursor-pointer"
+              className="flex items-center justify-between w-full px-3 py-1.5 text-[11px] font-semibold tracking-widest uppercase cursor-pointer transition-colors duration-150"
               style={{ color: 'var(--text-muted)' }}
             >
               {section.label}
               <ChevronDown
-                size={10}
+                size={12}
                 className={`transition-transform duration-150 ${collapsed[section.label] ? '-rotate-90' : ''}`}
               />
             </button>
-            {!collapsed[section.label] && section.items.map((item) => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors"
-                  style={{
-                    background: isActive ? 'var(--bg-tertiary)' : 'transparent',
-                    color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}>
-                  <Icon size={14} />
-                  {item.label}
-                </Link>
-              );
-            })}
+            {!collapsed[section.label] && (
+              <div className="animate-fade-in">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href;
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm sidebar-nav-item ${isActive ? 'nav-active-indicator' : ''}`}
+                      style={{
+                        background: isActive ? 'var(--bg-tertiary)' : 'transparent',
+                        color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                        boxShadow: isActive ? 'var(--shadow-sm)' : 'none',
+                      }}>
+                      <Icon size={16} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ))}
 
-        <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="mt-4 pt-4 flex items-center justify-between" style={{ borderTop: '1px solid var(--border)' }}>
           <Link href="/settings"
-            className="flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-colors"
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm sidebar-nav-item ${pathname === '/settings' ? 'nav-active-indicator' : ''}`}
             style={{
               background: pathname === '/settings' ? 'var(--bg-tertiary)' : 'transparent',
               color: pathname === '/settings' ? 'var(--accent)' : 'var(--text-secondary)',
+              boxShadow: pathname === '/settings' ? 'var(--shadow-sm)' : 'none',
             }}>
-            <Settings size={14} />
+            <Settings size={16} />
             Settings
           </Link>
+          <ThemeToggle />
         </div>
       </div>
     </aside>

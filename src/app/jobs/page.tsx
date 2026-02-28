@@ -25,23 +25,22 @@ export default function JobsPage() {
       </p>
 
       <div className="grid grid-cols-2 gap-6">
-        <div className="p-5 rounded-lg border"
-          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+        <div className="p-5 rounded-lg card-elevated animate-fade-in-up">
           <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--accent-amber)' }}>
             Do Work
           </h2>
           <TaskSubmitForm onSubmitted={refresh} />
         </div>
 
-        <div className="p-5 rounded-lg border"
-          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+        <div className="p-5 rounded-lg card-elevated animate-fade-in-up"
+          style={{ animationDelay: '75ms' }}>
           <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--accent-blue)' }}>
             Task History ({tasks.length})
           </h2>
           <div className="space-y-2 max-h-[500px] overflow-y-auto">
             {tasks.map(task => (
-              <div key={task.id} className="p-2 rounded text-xs border"
-                style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border)' }}>
+              <div key={task.id} className="p-2 rounded text-xs elevation-1"
+                style={{ background: 'var(--bg-tertiary)' }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
                     {task.title}

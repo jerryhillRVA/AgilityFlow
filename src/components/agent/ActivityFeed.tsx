@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { AgentEvent } from '@/types/events';
 
@@ -179,6 +179,7 @@ export function ActivityFeed() {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const seenIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     const eventSource = new EventSource('/api/events');
@@ -188,7 +189,10 @@ export function ActivityFeed() {
     eventSource.onmessage = (e) => {
       try {
         const event: AgentEvent = JSON.parse(e.data);
-        setEvents(prev => [event, ...prev].slice(0, 100));
+        // Deduplicate events on reconnect (server replays recent buffer)
+        if (seenIdsRef.current.has(event.id)) return;
+        seenIdsRef.current.add(event.id);
+        setEvents(prev => [event, ...prev].slice(0, 200));
       } catch { /* ignore parse errors */ }
     };
 
@@ -204,74 +208,83 @@ export function ActivityFeed() {
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-2 h-2 rounded-full"
-          style={{ background: connected ? 'var(--accent-green)' : 'var(--accent-red)' }} />
+    <div className="flex flex-col h-full min-h-0 gap-1.5">
+      <div className="flex items-center gap-2 shrink-0">
+        <div className={`w-2 h-2 rounded-full ${connected ? 'animate-pulse-soft' : ''}`}
+          style={{
+            background: connected ? 'var(--accent-green)' : 'var(--accent-red)',
+            boxShadow: connected ? '0 0 8px rgba(52, 211, 153, 0.5)' : 'none',
+          }} />
         <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
           {connected ? 'Live' : 'Disconnected'}
         </span>
+        {events.length > 0 && (
+          <span className="text-[9px] ml-auto" style={{ color: 'var(--text-muted)' }}>
+            {events.length} events
+          </span>
+        )}
       </div>
 
       {events.length === 0 && (
-        <div className="text-xs text-center py-8" style={{ color: 'var(--text-muted)' }}>
-          No activity yet. Submit a task to see agent events.
+        <div className="text-xs text-center py-6" style={{ color: 'var(--text-muted)' }}>
+          No activity yet.
         </div>
       )}
 
-      {events.map((event) => {
-        const isExpanded = expandedId === event.id;
-        const hasData = event.data && Object.keys(event.data).length > 0;
+      <div className="flex-1 min-h-0 overflow-hidden space-y-1.5">
+        {events.map((event) => {
+          const isExpanded = expandedId === event.id;
+          const hasData = event.data && Object.keys(event.data).length > 0;
 
-        return (
-          <div
-            key={event.id}
-            className={`p-2 rounded text-xs transition-colors ${hasData ? 'cursor-pointer' : ''}`}
-            style={{ background: isExpanded ? 'var(--bg-hover)' : 'var(--bg-tertiary)' }}
-            onClick={() => hasData && toggleExpand(event.id)}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-1">
-                {hasData && (
-                  isExpanded
-                    ? <ChevronDown size={10} style={{ color: 'var(--text-muted)' }} />
-                    : <ChevronRight size={10} style={{ color: 'var(--text-muted)' }} />
+          return (
+            <div
+              key={event.id}
+              className={`p-2 rounded text-xs transition-colors animate-fade-in-up ${hasData ? 'cursor-pointer' : ''}`}
+              style={{ background: isExpanded ? 'var(--bg-hover)' : 'var(--bg-tertiary)' }}
+              onClick={() => hasData && toggleExpand(event.id)}
+            >
+              <div className="flex items-center justify-between mb-0.5">
+                <div className="flex items-center gap-1 min-w-0">
+                  {hasData && (
+                    isExpanded
+                      ? <ChevronDown size={10} className="shrink-0" style={{ color: 'var(--text-muted)' }} />
+                      : <ChevronRight size={10} className="shrink-0" style={{ color: 'var(--text-muted)' }} />
+                  )}
+                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded truncate"
+                    style={{
+                      color: eventTypeColors[event.type] || 'var(--text-muted)',
+                      background: 'var(--bg-primary)',
+                    }}>
+                    {event.type}
+                  </span>
+                </div>
+                <span className="text-[9px] shrink-0 ml-1" style={{ color: 'var(--text-muted)' }}>
+                  {new Date(event.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+              <div className="truncate" style={{ color: 'var(--text-secondary)' }}>{event.message}</div>
+              <div className="flex items-center gap-2 mt-0.5">
+                {event.agentId && (
+                  <span className="text-[9px] truncate" style={{ color: 'var(--text-muted)' }}>
+                    {event.agentId}
+                  </span>
                 )}
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded"
-                  style={{
-                    color: eventTypeColors[event.type] || 'var(--text-muted)',
-                    background: 'var(--bg-primary)',
-                  }}>
-                  {event.type}
-                </span>
+                {event.taskId && (
+                  <span className="text-[9px] font-mono shrink-0" style={{ color: 'var(--text-muted)' }}>
+                    {event.taskId.slice(0, 8)}
+                  </span>
+                )}
               </div>
-              <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
-                {new Date(event.timestamp).toLocaleTimeString()}
-              </span>
-            </div>
-            <div style={{ color: 'var(--text-secondary)' }}>{event.message}</div>
-            <div className="flex items-center gap-3 mt-1">
-              {event.agentId && (
-                <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
-                  Agent: {event.agentId}
-                </span>
-              )}
-              {event.taskId && (
-                <span className="text-[9px] font-mono" style={{ color: 'var(--text-muted)' }}>
-                  Task: {event.taskId.slice(0, 8)}
-                </span>
-              )}
-            </div>
 
-            {/* Expanded detail section */}
-            {isExpanded && hasData && (
-              <div className="mt-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                {renderEventData(event)}
-              </div>
-            )}
-          </div>
-        );
-      })}
+              {isExpanded && hasData && (
+                <div className="mt-1.5 pt-1.5 border-t overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+                  {renderEventData(event)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

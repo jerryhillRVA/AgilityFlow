@@ -104,17 +104,17 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+        className="fixed inset-0 z-40 animate-backdrop-fade"
+        style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
       />
 
       {/* Panel */}
       <div
-        className="fixed top-0 right-0 z-50 h-full w-[420px] overflow-y-auto border-l"
+        className="fixed top-0 right-0 z-50 h-full w-[420px] overflow-y-auto border-l animate-panel-slide-in elevation-3"
         style={{
           background: 'var(--bg-secondary)',
-          borderColor: 'var(--border)',
+          borderColor: 'var(--glass-border)',
         }}
       >
         {/* Header */}

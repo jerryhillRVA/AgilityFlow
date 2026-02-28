@@ -36,9 +36,9 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-8">
-        {stats.map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="p-4 rounded-lg border"
-            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+        {stats.map(({ label, value, icon: Icon, color }, index) => (
+          <div key={label} className="p-4 rounded-lg card-elevated animate-fade-in-up"
+            style={{ animationDelay: `${index * 75}ms` }}>
             <div className="flex items-center gap-2 mb-2">
               <Icon size={16} style={{ color }} />
               <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
@@ -51,8 +51,8 @@ export default function DashboardPage() {
       </div>
 
       {health && (
-        <div className="mb-8 p-3 rounded-lg border text-xs"
-          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+        <div className="mb-8 p-3 rounded-lg text-xs elevation-1"
+          style={{ background: 'var(--bg-secondary)' }}>
           <span style={{ color: 'var(--text-muted)' }}>System: </span>
           <span style={{ color: 'var(--accent-green)' }}>{String(health.status)}</span>
           <span style={{ color: 'var(--text-muted)' }}> | Agentic FS: </span>
@@ -64,8 +64,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="p-6 rounded-lg border"
-        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+      <div className="p-6 rounded-lg card-elevated">
         <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
           Submit a Task
         </h2>

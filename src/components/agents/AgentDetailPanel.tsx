@@ -38,8 +38,8 @@ export function AgentDetailPanel({ agent, onClose }: AgentDetailPanelProps) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+        className="fixed inset-0 z-40 animate-backdrop-fade"
+        style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
         role="presentation"
         aria-label="Close agent detail panel"
@@ -47,8 +47,8 @@ export function AgentDetailPanel({ agent, onClose }: AgentDetailPanelProps) {
 
       {/* Panel */}
       <div
-        className="fixed top-0 right-0 z-50 h-full w-[420px] overflow-y-auto border-l"
-        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}
+        className="fixed top-0 right-0 z-50 h-full w-[420px] overflow-y-auto border-l animate-panel-slide-in elevation-3"
+        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--glass-border)' }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="agent-detail-title"

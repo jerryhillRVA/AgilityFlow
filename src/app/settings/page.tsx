@@ -13,6 +13,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       style={{
         color: active ? 'var(--accent)' : 'var(--text-muted)',
         borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+        transition: 'all var(--duration-fast) ease',
       }}
     >
       {children}
@@ -55,8 +56,8 @@ function SystemTab({ health }: { health: Record<string, unknown> | null }) {
   return (
     <div className="space-y-6">
       {sections.map(section => (
-        <div key={section.title} className="p-5 rounded-lg border"
-          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', borderLeft: `3px solid ${section.color}` }}>
+        <div key={section.title} className="p-5 rounded-lg card-elevated animate-fade-in-up"
+          style={{ borderLeft: `3px solid ${section.color}` }}>
           <h2 className="text-sm font-semibold mb-3" style={{ color: section.color }}>
             {section.title}
           </h2>

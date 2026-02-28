@@ -109,8 +109,8 @@ export default function TicketsPage() {
 
         {/* Filter Bar */}
         <div
-          className="rounded-lg border p-4 flex items-end gap-4"
-          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}
+          className="rounded-lg p-4 flex items-end gap-4 elevation-1"
+          style={{ background: 'var(--bg-secondary)' }}
         >
           <div className="flex-1">
             <label
@@ -229,19 +229,12 @@ export default function TicketsPage() {
               <div
                 key={task.id}
                 onClick={() => setSelectedTask(task)}
-                className="rounded-lg border p-3 cursor-pointer transition-colors"
+                className="rounded-lg p-3 cursor-pointer ticket-row elevation-1"
                 style={{
                   background: 'var(--bg-secondary)',
-                  borderColor: 'var(--border)',
                   paddingLeft: task.parentTaskId ? '2rem' : undefined,
                   borderLeftColor: task.parentTaskId ? 'var(--accent-violet)' : undefined,
                   borderLeftWidth: task.parentTaskId ? '3px' : undefined,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-secondary)';
                 }}
               >
                 <div className="flex items-start justify-between gap-3">

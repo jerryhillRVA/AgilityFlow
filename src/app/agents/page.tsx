@@ -34,15 +34,15 @@ export default function AgentsPage() {
       </p>
 
       <div className="grid grid-cols-2 gap-4">
-        {agents.map(agent => (
+        {agents.map((agent, index) => (
           <div
             key={agent.id}
-            className="p-5 rounded-lg border cursor-pointer transition-all duration-200"
+            className="p-5 rounded-lg cursor-pointer card-elevated animate-fade-in-up"
             style={{
-              background: 'var(--bg-secondary)',
-              borderColor: selectedAgent?.id === agent.id ? (tierColors[agent.tier] || 'var(--border)') : 'var(--border)',
+              animationDelay: `${index * 75}ms`,
+              borderColor: selectedAgent?.id === agent.id ? (tierColors[agent.tier] || 'var(--border)') : undefined,
               borderLeft: `3px solid ${tierColors[agent.tier] || 'var(--border)'}`,
-              boxShadow: selectedAgent?.id === agent.id ? `0 4px 12px rgba(0,0,0,0.2)` : undefined,
+              boxShadow: selectedAgent?.id === agent.id ? `var(--shadow-lg)` : undefined,
             }}
             onClick={() => handleCardClick(agent)}
             role="button"

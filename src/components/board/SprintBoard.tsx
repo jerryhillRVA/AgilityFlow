@@ -116,8 +116,12 @@ export function SprintBoard() {
                   {totalCount}
                 </span>
               </div>
-              <div className="space-y-2 min-h-[200px] p-2 rounded"
-                style={{ background: 'var(--bg-primary)', border: '1px dashed var(--border)' }}>
+              <div className="space-y-2 min-h-[200px] p-2 rounded-lg"
+                style={{
+                  background: 'var(--bg-primary)',
+                  border: '1px dashed var(--border)',
+                  boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.2)',
+                }}>
                 {columnParents.map(parentTask => {
                   const allSubtasks = subtasksByParent.get(parentTask.id) || [];
                   const isExpanded = expandedSwimlanes.has(parentTask.id);

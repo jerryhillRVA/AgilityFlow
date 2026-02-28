@@ -22,8 +22,8 @@ export default function BacklogPage() {
         All tasks across all statuses. {tasks.length} total.
       </p>
 
-      <div className="rounded-lg border overflow-hidden"
-        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+      <div className="rounded-lg overflow-hidden elevation-2"
+        style={{ background: 'var(--bg-secondary)' }}>
         <table className="w-full text-xs">
           <thead>
             <tr style={{ background: 'var(--bg-tertiary)' }}>

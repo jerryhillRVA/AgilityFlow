@@ -123,15 +123,15 @@ export default function TemplatesPage() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {templates.map(template => (
+          {templates.map((template, index) => (
             <div
               key={template.id}
-              className="p-5 rounded-lg border cursor-pointer transition-all duration-200"
+              className="p-5 rounded-lg cursor-pointer card-elevated animate-fade-in-up"
               style={{
-                background: 'var(--bg-secondary)',
-                borderColor: selectedTemplate?.id === template.id ? 'var(--accent-violet)' : 'var(--border)',
+                animationDelay: `${index * 75}ms`,
+                borderColor: selectedTemplate?.id === template.id ? 'var(--accent-violet)' : undefined,
                 borderLeft: '3px solid var(--accent-violet)',
-                boxShadow: selectedTemplate?.id === template.id ? '0 4px 12px rgba(0,0,0,0.2)' : undefined,
+                boxShadow: selectedTemplate?.id === template.id ? 'var(--shadow-lg)' : undefined,
               }}
               onClick={() => handleTemplateClick(template)}
               role="button"

@@ -65,17 +65,17 @@ export function ArtifactViewerModal({ artifact, onClose }: ArtifactViewerModalPr
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-[60]"
-        style={{ background: 'rgba(0, 0, 0, 0.6)' }}
+        className="fixed inset-0 z-[60] animate-backdrop-fade"
+        style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
       />
 
       {/* Modal */}
       <div
-        className={modalClasses}
+        className={`${modalClasses} animate-fade-in-up elevation-3`}
         style={{
           background: 'var(--bg-secondary)',
-          borderColor: 'var(--border)',
+          borderColor: 'var(--glass-border)',
           transition: 'width 0.2s ease, max-width 0.2s ease, max-height 0.2s ease, top 0.2s ease',
         }}
       >

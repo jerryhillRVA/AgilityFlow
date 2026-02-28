@@ -123,15 +123,15 @@ export default function SkillsPage() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {skills.map(skill => (
+          {skills.map((skill, index) => (
             <div
               key={skill.id}
-              className="p-5 rounded-lg border cursor-pointer transition-all duration-200"
+              className="p-5 rounded-lg cursor-pointer card-elevated animate-fade-in-up"
               style={{
-                background: 'var(--bg-secondary)',
-                borderColor: selectedSkill?.id === skill.id ? 'var(--accent-violet)' : 'var(--border)',
+                animationDelay: `${index * 75}ms`,
+                borderColor: selectedSkill?.id === skill.id ? 'var(--accent-violet)' : undefined,
                 borderLeft: '3px solid var(--accent-violet)',
-                boxShadow: selectedSkill?.id === skill.id ? '0 4px 12px rgba(0,0,0,0.2)' : undefined,
+                boxShadow: selectedSkill?.id === skill.id ? 'var(--shadow-lg)' : undefined,
               }}
               onClick={() => handleSkillClick(skill)}
               role="button"
