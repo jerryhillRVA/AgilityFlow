@@ -19,6 +19,8 @@ export interface GitHubConnectorConfig {
   syncIntervalMinutes: number;
   /** Whether auto-sync is enabled */
   autoSync: boolean;
+  /** ISO 8601 timestamp of last successful sync (persisted for incremental sync) */
+  lastSyncedAt?: string;
 }
 
 /** Per-connector runtime status (in-memory, not persisted) */

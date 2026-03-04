@@ -55,9 +55,13 @@ export class GitHubConnector {
       // Index all eligible files to Agentic FS code namespace
       const indexedCount = await this.indexToAgenticFS(cloneDir);
 
+      // Persist sync timestamp so subsequent sync() calls use incremental logic
+      const now = new Date().toISOString();
+      await settings.updateLastSyncedAt(now);
+
       settings.setGitHubRuntimeStatus({
         status: 'connected',
-        lastSyncAt: new Date().toISOString(),
+        lastSyncAt: now,
         filesIndexed: indexedCount,
       });
 
@@ -84,7 +88,7 @@ export class GitHubConnector {
     }
   }
 
-  /** Manual or scheduled sync */
+  /** Manual or scheduled sync — uses persisted lastSyncedAt for incremental indexing */
   async sync(): Promise<void> {
     if (this.syncing) return;
     this.syncing = true;
@@ -105,39 +109,64 @@ export class GitHubConnector {
         // Clone hasn't happened yet — do a full init
         await this.clone(config.repoUrl, config.branch, cloneDir);
         const indexedCount = await this.indexToAgenticFS(cloneDir);
+        const now = new Date().toISOString();
+        await settings.updateLastSyncedAt(now);
         settings.setGitHubRuntimeStatus({
           status: 'connected',
-          lastSyncAt: new Date().toISOString(),
+          lastSyncAt: now,
           filesIndexed: indexedCount,
         });
         return;
       }
 
-      // Get current HEAD before pull
-      const headBefore = await this.getHead(cloneDir);
+      // Pull latest changes
       await this.pull(cloneDir, config.branch);
-      const headAfter = await this.getHead(cloneDir);
 
-      if (headBefore !== headAfter) {
-        // Get changed files and re-index only those
-        const changedFiles = await this.getChangedFiles(cloneDir, headBefore, headAfter);
+      const lastSyncedAt = config.lastSyncedAt;
+
+      if (!lastSyncedAt) {
+        // No persisted timestamp — full re-index to establish baseline
+        const indexedCount = await this.indexToAgenticFS(cloneDir);
+        const now = new Date().toISOString();
+        await settings.updateLastSyncedAt(now);
+        settings.setGitHubRuntimeStatus({
+          status: 'connected',
+          lastSyncAt: now,
+          filesIndexed: indexedCount,
+        });
+        eventBus.emit(createEvent(
+          'system:info',
+          `GitHub sync: full re-index (no prior timestamp), ${indexedCount} files indexed`,
+          { filesIndexed: indexedCount },
+        ));
+        return;
+      }
+
+      // Incremental sync: get files changed since last sync timestamp
+      const changedFiles = await this.getFilesSince(cloneDir, lastSyncedAt);
+      const now = new Date().toISOString();
+
+      if (changedFiles.length > 0) {
         const indexedCount = await this.indexFiles(cloneDir, changedFiles);
+        await settings.updateLastSyncedAt(now);
 
         eventBus.emit(createEvent(
           'system:info',
-          `GitHub sync: ${changedFiles.length} changed, ${indexedCount} indexed (${headAfter.slice(0, 8)})`,
-          { filesChanged: changedFiles.length, filesIndexed: indexedCount, commit: headAfter },
+          `GitHub sync: ${changedFiles.length} changed, ${indexedCount} indexed`,
+          { filesChanged: changedFiles.length, filesIndexed: indexedCount },
         ));
 
         settings.setGitHubRuntimeStatus({
           status: 'connected',
-          lastSyncAt: new Date().toISOString(),
+          lastSyncAt: now,
           filesIndexed: indexedCount,
         });
       } else {
+        // No changes — advance the cursor
+        await settings.updateLastSyncedAt(now);
         settings.setGitHubRuntimeStatus({
           status: 'connected',
-          lastSyncAt: new Date().toISOString(),
+          lastSyncAt: now,
         });
       }
     } catch (error) {
@@ -265,25 +294,29 @@ export class GitHubConnector {
     return files;
   }
 
-  /** Get changed files between two commits */
-  private async getChangedFiles(cloneDir: string, fromCommit: string, toCommit: string): Promise<string[]> {
+  /** Get all files changed since a given ISO timestamp, deduplicated */
+  private async getFilesSince(cloneDir: string, since: string): Promise<string[]> {
     try {
       const { stdout } = await execFileAsync('git', [
-        '-C', cloneDir, 'diff', '--name-only', fromCommit, toCommit,
+        '-C', cloneDir,
+        'log',
+        `--since=${since}`,
+        '--name-only',
+        '--pretty=format:',
+        '--diff-filter=ACMR',
       ], { timeout: 30000 });
-      return stdout.trim().split('\n').filter(Boolean);
+
+      const files = stdout
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+
+      // Deduplicate: same file may appear in multiple commits
+      return [...new Set(files)];
     } catch {
       // Fallback: re-index everything
       return this.walkDirectory(cloneDir);
     }
-  }
-
-  /** Get current HEAD commit hash */
-  private async getHead(cloneDir: string): Promise<string> {
-    const { stdout } = await execFileAsync('git', [
-      '-C', cloneDir, 'rev-parse', 'HEAD',
-    ], { timeout: 10000 });
-    return stdout.trim();
   }
 
   /** Check if a directory is a git repo */

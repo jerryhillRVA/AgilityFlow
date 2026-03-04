@@ -111,6 +111,13 @@ export class SettingsService {
     return decrypt(pat, tenant);
   }
 
+  /** Persist the lastSyncedAt timestamp for GitHub connector (internal bookkeeping) */
+  async updateLastSyncedAt(timestamp: string): Promise<void> {
+    const settings = await this.load();
+    settings.connectors.github.lastSyncedAt = timestamp;
+    await this.save();
+  }
+
   /** Get sanitized settings safe for the client (no encrypted secrets) */
   async getClientSettings(): Promise<{
     settings: ProjectSettings;
@@ -121,6 +128,7 @@ export class SettingsService {
     // Deep clone and strip the pat field
     const sanitized = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
     sanitized.connectors.github.pat = null;
+    delete sanitized.connectors.github.lastSyncedAt;
 
     return {
       settings: sanitized,

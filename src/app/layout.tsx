@@ -33,7 +33,7 @@ export default function RootLayout({
 
           <div className="flex h-screen overflow-hidden relative" style={{ zIndex: 1 }}>
             <Sidebar />
-            <main className="flex-1 overflow-y-auto relative">
+            <main className="flex-1 overflow-y-auto relative [transform:translateZ(0)]">
               <div className="relative p-6 animate-fade-in">
                 {children}
               </div>
