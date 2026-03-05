@@ -1,4 +1,4 @@
-import type { ProjectSettings, GitHubConnectorConfig } from '@/types/settings';
+import type { ProjectSettings, GitHubConnectorConfig, TestingConfig } from '@/types/settings';
 
 export function createDefaultGitHubConfig(): GitHubConnectorConfig {
   return {
@@ -12,12 +12,19 @@ export function createDefaultGitHubConfig(): GitHubConnectorConfig {
   };
 }
 
+export function createDefaultTestingConfig(): TestingConfig {
+  return {
+    testEnvironmentUrl: 'http://localhost:3000',
+  };
+}
+
 export function createDefaultSettings(): ProjectSettings {
   return {
     version: 1,
     connectors: {
       github: createDefaultGitHubConfig(),
     },
+    testing: createDefaultTestingConfig(),
     updatedAt: new Date().toISOString(),
   };
 }

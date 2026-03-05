@@ -31,11 +31,18 @@ export interface ConnectorRuntimeStatus {
   filesIndexed?: number;
 }
 
+/** Testing configuration */
+export interface TestingConfig {
+  /** Base URL of the test environment (e.g., http://localhost:3000) */
+  testEnvironmentUrl: string;
+}
+
 /** Full settings document stored on Agentic FS */
 export interface ProjectSettings {
   version: 1;
   connectors: {
     github: GitHubConnectorConfig;
   };
+  testing: TestingConfig;
   updatedAt: string;
 }

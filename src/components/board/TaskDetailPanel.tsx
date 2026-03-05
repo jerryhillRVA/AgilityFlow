@@ -24,11 +24,34 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: 'var(--text-muted)',
 };
 
+function TestReportSection({ report }: { report: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-[10px] font-semibold tracking-widest uppercase mb-2 cursor-pointer"
+        style={{ color: 'var(--text-muted)' }}
+      >
+        {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        Test Report
+      </button>
+      {expanded && (
+        <div className="p-2 rounded overflow-auto max-h-[400px]" style={{ background: 'var(--bg-tertiary)' }}>
+          <MarkdownRenderer content={report} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSelectTask }: TaskDetailPanelProps) {
   const [viewingArtifact, setViewingArtifact] = useState<TaskArtifact | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [implementing, setImplementing] = useState(false);
   const [implementError, setImplementError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
   const { STATUS_COLORS, getPriorityColor, getArtifactCategories, getArtifactCategoryLabel } = useWorkflow();
 
   const CATEGORY_ORDER = getArtifactCategories().map(c => c.id);
@@ -64,6 +87,12 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
     && allSubtasksDone
     && (!task.implementationStatus || task.implementationStatus === 'failed');
 
+  const hasVerificationArtifacts = artifacts.some(a => a.category === 'verification');
+  const canRunTests = !task.parentTaskId
+    && task.status === 'review'
+    && hasVerificationArtifacts
+    && task.testStatus !== 'testing';
+
   async function handleImplement() {
     setImplementing(true);
     setImplementError(null);
@@ -77,6 +106,22 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
       setImplementError(err instanceof Error ? err.message : String(err));
     } finally {
       setImplementing(false);
+    }
+  }
+
+  async function handleRunTests() {
+    setTesting(true);
+    setTestError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/test`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -199,6 +244,27 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
                   {implementError}
                 </div>
               )}
+              {/* Run Tests Button — for parent tasks in review with verification artifacts */}
+              {canRunTests && (
+                <button
+                  onClick={handleRunTests}
+                  disabled={testing}
+                  className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors"
+                  style={{
+                    background: testing ? 'var(--bg-tertiary)' : 'var(--accent-green)',
+                    color: testing ? 'var(--text-muted)' : 'white',
+                    opacity: testing ? 0.7 : 1,
+                  }}
+                >
+                  {testing ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                  {testing ? 'Starting Tests...' : 'Run Tests'}
+                </button>
+              )}
+              {testError && (
+                <div className="mt-1 text-[10px] p-2 rounded" style={{ background: 'rgba(248, 113, 113, 0.1)', color: 'var(--accent-red)' }}>
+                  {testError}
+                </div>
+              )}
             </div>
           )}
 
@@ -249,6 +315,47 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
                 </div>
               )}
             </div>
+          )}
+
+          {/* Test Status */}
+          {task.testStatus && (
+            <div>
+              <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+                Test Results
+              </div>
+              {task.testStatus === 'testing' && (
+                <div className="flex items-center gap-2 p-2 rounded" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                  <Loader2 size={12} className="animate-spin" style={{ color: 'var(--accent-green)' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--accent-green)' }}>Tests running...</span>
+                </div>
+              )}
+              {task.testStatus === 'passed' && (
+                <div className="p-2 rounded" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                  <div className="flex items-center gap-1.5">
+                    <Zap size={10} style={{ color: 'var(--accent-green)' }} />
+                    <span className="text-[10px] font-semibold" style={{ color: 'var(--accent-green)' }}>All Tests Passed</span>
+                  </div>
+                </div>
+              )}
+              {task.testStatus === 'failed' && (
+                <div className="p-2 rounded" style={{ background: 'rgba(248, 113, 113, 0.1)' }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <AlertTriangle size={10} style={{ color: 'var(--accent-red)' }} />
+                    <span className="text-[10px] font-semibold" style={{ color: 'var(--accent-red)' }}>Tests Failed</span>
+                  </div>
+                  {task.testError && (
+                    <div className="text-[10px] whitespace-pre-wrap" style={{ color: 'var(--accent-red)' }}>
+                      {task.testError}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Test Report (collapsible) */}
+          {task.testReport && (
+            <TestReportSection report={task.testReport} />
           )}
 
           {/* Description */}

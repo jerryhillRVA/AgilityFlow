@@ -24,6 +24,10 @@ async function patchHandler(request: NextRequest) {
       await service.updateGitHubConfig(body.github);
     }
 
+    if (body.testing) {
+      await service.updateTestingConfig(body.testing);
+    }
+
     const data = await service.getClientSettings();
     return NextResponse.json(data);
   } catch (error) {

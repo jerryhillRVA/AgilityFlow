@@ -254,6 +254,8 @@ function spawnClaudeCode(prompt: string, cwd: string, taskId: string, pat: strin
     // Build child process env based on auth mode
     const isLocal = process.env.CLAUDE_CAUDE_LOCAL === 'true';
     const childEnv = { ...process.env };
+    // Always strip CLAUDECODE to avoid nested-session detection
+    delete childEnv.CLAUDECODE;
     if (isLocal) {
       // Local dev: strip API key so Claude Code uses OAuth / subscription
       delete childEnv.ANTHROPIC_API_KEY;

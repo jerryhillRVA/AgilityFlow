@@ -13,6 +13,8 @@ import { NS, paths } from './fs-paths';
 import { v4 as uuid } from 'uuid';
 import { initializeConnectors } from './connectors/startup';
 import { implementTask as runImplementation } from './implementer';
+import { runTests as runTestExecution } from './test-runner';
+import { getSettingsService } from './settings-service';
 import { log, startTimer } from './logger';
 import { getAllStatusIds, getTransitionAction, getSubtaskInitialStatus, getParentInitialStatus } from './workflow-loader';
 import { withTraceAsync, getTraceId, generateTraceId } from './trace';
@@ -761,6 +763,63 @@ export class Orchestrator {
       eventBus.emit(createEvent(
         'implementation:failed',
         `Implementation failed for "${task.title}": ${err}`,
+        { taskId, error: String(err) },
+        'orchestrator',
+        taskId,
+      ));
+    }
+
+    this.persistTaskUpdate(task).catch(() => {});
+  }
+
+  async runTests(taskId: string): Promise<void> {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      log.error('orchestrator', `runTests: task not found: ${taskId}`);
+      return;
+    }
+
+    // Load test environment URL from settings
+    const settingsService = getSettingsService();
+    const settings = await settingsService.load();
+    const testEnvironmentUrl = settings.testing?.testEnvironmentUrl;
+
+    if (!testEnvironmentUrl) {
+      task.testStatus = 'failed';
+      task.testError = 'Test environment URL is not configured. Set it in Settings \u2192 Testing.';
+      this.persistTaskUpdate(task).catch(() => {});
+      return;
+    }
+
+    task.testStatus = 'testing';
+    task.testError = undefined;
+    task.testReport = undefined;
+    this.persistTaskUpdate(task).catch(() => {});
+
+    log.info('orchestrator', `Test execution started for "${task.title}"`, { taskId });
+
+    try {
+      const result = await runTestExecution(task, testEnvironmentUrl);
+
+      if (result.success) {
+        task.testStatus = 'passed';
+        task.testReport = result.report;
+        task.testError = undefined;
+        log.info('orchestrator', `Tests passed for "${task.title}" (${result.passedCount}/${(result.passedCount || 0) + (result.failedCount || 0)})`);
+      } else {
+        task.testStatus = 'failed';
+        task.testReport = result.report;
+        task.testError = result.error || 'Tests failed';
+        log.error('orchestrator', `Tests failed for "${task.title}": ${result.error}`);
+      }
+    } catch (err) {
+      task.testStatus = 'failed';
+      task.testError = String(err);
+      log.error('orchestrator', `Test execution threw for "${task.title}": ${err}`);
+
+      eventBus.emit(createEvent(
+        'test:failed',
+        `Test execution failed for "${task.title}": ${err}`,
         { taskId, error: String(err) },
         'orchestrator',
         taskId,

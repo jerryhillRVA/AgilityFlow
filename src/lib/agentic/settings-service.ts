@@ -101,6 +101,20 @@ export class SettingsService {
     await this.save();
   }
 
+  /** Update testing configuration. */
+  async updateTestingConfig(update: {
+    testEnvironmentUrl?: string;
+  }): Promise<void> {
+    const settings = await this.load();
+    if (!settings.testing) {
+      settings.testing = { testEnvironmentUrl: 'http://localhost:3000' };
+    }
+    if (update.testEnvironmentUrl !== undefined) {
+      settings.testing.testEnvironmentUrl = update.testEnvironmentUrl;
+    }
+    await this.save();
+  }
+
   /** Decrypt and return the GitHub PAT. Server-only. */
   async getDecryptedPAT(): Promise<string | null> {
     const settings = await this.load();
@@ -129,6 +143,10 @@ export class SettingsService {
     const sanitized = JSON.parse(JSON.stringify(settings)) as ProjectSettings;
     sanitized.connectors.github.pat = null;
     delete sanitized.connectors.github.lastSyncedAt;
+    // Ensure testing config exists (backward compat for pre-existing settings)
+    if (!sanitized.testing) {
+      sanitized.testing = { testEnvironmentUrl: 'http://localhost:3000' };
+    }
 
     return {
       settings: sanitized,

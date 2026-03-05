@@ -23,7 +23,10 @@ export type EventType =
   | 'wave:agent_failed'
   | 'implementation:started'
   | 'implementation:completed'
-  | 'implementation:failed';
+  | 'implementation:failed'
+  | 'test:started'
+  | 'test:completed'
+  | 'test:failed';
 
 export interface AgentEvent {
   id: string;

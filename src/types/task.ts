@@ -61,6 +61,12 @@ export interface Task {
   implementationStatus?: 'pending' | 'implementing' | 'implemented' | 'failed';
   /** Error message from implementation phase */
   implementationError?: string;
+  /** Status of the test execution phase */
+  testStatus?: 'pending' | 'testing' | 'passed' | 'failed';
+  /** Error message from test execution phase */
+  testError?: string;
+  /** Test result summary (markdown) — captured from Claude Code output */
+  testReport?: string;
   /** Whether the orchestrator has finished decomposing this task (plan mode only) */
   decompositionComplete?: boolean;
 }

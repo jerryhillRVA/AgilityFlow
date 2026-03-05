@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { GitHubConnectorPanel } from '@/components/settings/GitHubConnectorPanel';
+import { TestingConfigPanel } from '@/components/settings/TestingConfigPanel';
 
-type SettingsTab = 'system' | 'connectors';
+type SettingsTab = 'system' | 'connectors' | 'testing';
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -100,10 +101,14 @@ export default function SettingsPage() {
         <TabButton active={activeTab === 'connectors'} onClick={() => setActiveTab('connectors')}>
           Connectors
         </TabButton>
+        <TabButton active={activeTab === 'testing'} onClick={() => setActiveTab('testing')}>
+          Testing
+        </TabButton>
       </div>
 
       {activeTab === 'system' && <SystemTab health={health} />}
       {activeTab === 'connectors' && <GitHubConnectorPanel />}
+      {activeTab === 'testing' && <TestingConfigPanel />}
     </div>
   );
 }
