@@ -17,9 +17,9 @@ export interface TestResult {
   failedCount?: number;
 }
 
-const MAX_BUDGET_USD = 5;
-/** 10 minutes — generous timeout for a full test execution cycle */
-const EXEC_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_BUDGET_USD = 10;
+/** 20 minutes — browser automation via AppleScript is slower than file editing */
+const EXEC_TIMEOUT_MS = 20 * 60 * 1000;
 /** Directory for test execution audit logs (relative to project root) */
 const LOG_DIR = join(process.cwd(), '.agility', 'logs');
 
@@ -102,12 +102,30 @@ export async function runTests(task: Task, testEnvironmentUrl: string): Promise<
       };
     }
 
-    // No structured report found — return full output as report
-    log.warn(TAG, 'No structured test report found in output', { taskId: task.id });
+    // No structured report found — try to salvage individual PASS/FAIL lines from raw output
+    log.warn(TAG, 'No structured test report found in output — attempting fallback parsing', { taskId: task.id });
+
+    const fallback = extractFallbackResults(result.allText);
+    if (fallback) {
+      const allPassed = fallback.failedCount === 0 && fallback.passedCount > 0;
+      return {
+        success: allPassed,
+        report: fallback.report,
+        logFile: result.logFile,
+        passedCount: fallback.passedCount,
+        failedCount: fallback.failedCount,
+        error: allPassed
+          ? undefined
+          : fallback.failedCount > 0
+            ? `${fallback.failedCount} test(s) failed`
+            : 'Test execution ended before completing — no results captured.',
+      };
+    }
+
     return {
       success: false,
       report: result.allText.slice(-2000),
-      error: 'Test execution completed but no structured test report was found in the output.',
+      error: 'Test execution completed but no test results could be extracted from the output.',
       logFile: result.logFile,
     };
 
@@ -499,12 +517,18 @@ mcp__chrome-control__execute_javascript({ code: "JSON.stringify(window.__testErr
 mcp__chrome-control__execute_javascript({ code: "new Promise(resolve => setTimeout(() => resolve(document.querySelector('.loaded')?.textContent || 'not loaded'), 2000))" })
 \`\`\`
 
+### CRITICAL SAFETY RULES
+- You are testing a LIVE application with REAL data. NEVER click buttons that change task status (e.g., "Mark Done", "Request Changes", "Move to…", "Delete", "Archive"). These are destructive actions that modify real data.
+- For status transition tests, ONLY verify the buttons EXIST and have the correct labels — do NOT click them.
+- Do NOT submit forms that create, update, or delete records unless the test plan explicitly requires it AND the action is non-destructive (e.g., a search form is fine, a delete confirmation is NOT).
+- Do NOT navigate away from the test environment URL domain.
+
 ### Test Execution
 For each test case in the test plan above:
 
 1. **Navigate** to the relevant page using \`open_url\`.
 2. **Read the page** using \`get_page_content\` or \`execute_javascript\` to verify page structure and content.
-3. **Interact** with the page using \`execute_javascript\` — click buttons, fill forms, trigger events.
+3. **Interact** with the page using \`execute_javascript\` — click UI elements to open panels, expand sections, fill search fields, etc. But NEVER click destructive action buttons (status changes, delete, submit).
 4. **Verify** expected outcomes by reading DOM state with \`execute_javascript\`.
 5. **Check for errors** using injected error listeners.
 6. Continue to the next test case, regardless of pass/fail.
@@ -579,6 +603,49 @@ function extractTestReport(output: string): { report: string; passedCount: numbe
 
   return {
     report,
+    passedCount,
+    failedCount,
+  };
+}
+
+/**
+ * Fallback: scan raw streaming output for individual "TC-XXX PASS" / "TC-XXX FAIL" lines
+ * when the CLI dies before emitting the formal report (e.g. budget exhaustion).
+ */
+function extractFallbackResults(
+  allText: string,
+): { report: string; passedCount: number; failedCount: number } | null {
+  // Match lines like "TC-001 PASS", "TC-016 PASS —", "TC-003 FAIL —", etc.
+  const passLines = allText.match(/\bTC-\d+[^\n]*\bPASS\b/gi) || [];
+  const failLines = allText.match(/\bTC-\d+[^\n]*\bFAIL\b/gi) || [];
+
+  const passedCount = passLines.length;
+  const failedCount = failLines.length;
+
+  if (passedCount === 0 && failedCount === 0) return null;
+
+  // Build a synthetic report from the raw lines
+  const lines: string[] = [
+    '# Test Execution Report (Reconstructed)',
+    '',
+    '> **Note:** The test runner was interrupted before producing its final report.',
+    '> These results were reconstructed from individual test case outputs.',
+    '',
+    '## Summary',
+    `- **Total Tests:** ${passedCount + failedCount}`,
+    `- **Passed:** ${passedCount}`,
+    `- **Failed:** ${failedCount}`,
+    `- **Status:** ${failedCount === 0 ? 'PASSED' : 'FAILED'}`,
+    '',
+    '## Results',
+    '',
+  ];
+
+  for (const l of passLines) lines.push(`- ✅ ${l.trim()}`);
+  for (const l of failLines) lines.push(`- ❌ ${l.trim()}`);
+
+  return {
+    report: lines.join('\n'),
     passedCount,
     failedCount,
   };

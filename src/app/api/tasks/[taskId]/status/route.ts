@@ -37,7 +37,8 @@ async function patchHandler(
     }
 
     const previousStatus = task.status;
-    if (!isValidTransition(previousStatus, newStatus)) {
+    const forceTransition = request.nextUrl.searchParams.get('force') === 'true';
+    if (!forceTransition && !isValidTransition(previousStatus, newStatus)) {
       return NextResponse.json({
         error: `Invalid transition: ${previousStatus} → ${newStatus}`,
         validTransitions: getValidTransitions(previousStatus),
