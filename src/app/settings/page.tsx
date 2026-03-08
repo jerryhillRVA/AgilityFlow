@@ -28,10 +28,10 @@ function SystemTab({ health }: { health: Record<string, unknown> | null }) {
       title: 'Model Configuration',
       color: 'var(--accent-violet)',
       items: [
-        { label: 'Default Provider', value: 'Anthropic' },
-        { label: 'Fast Tier', value: 'claude-haiku-4-5-20251001' },
-        { label: 'Balanced Tier', value: 'claude-sonnet-4-5-20250929' },
-        { label: 'Advanced Tier', value: 'claude-opus-4-6' },
+        { label: 'Active Adapter', value: health ? String(health.adapter) : 'Checking...' },
+        { label: 'Fast Tier', value: 'config/models.yaml' },
+        { label: 'Balanced Tier', value: 'config/models.yaml' },
+        { label: 'Advanced Tier', value: 'config/models.yaml' },
       ],
     },
     {

@@ -1,11 +1,12 @@
 import { spawn } from 'child_process';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync } from 'fs';
+import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
 import { log } from './logger';
+import { resolveModelForTier } from './model-resolver';
 import type { Task, TaskArtifact } from '@/types/task';
 
 export interface TestResult {
@@ -155,6 +156,58 @@ interface CLIResult {
   exitCode: number | null;
 }
 
+type AgentCli = 'claude' | 'codex';
+type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+
+function resolveAgentCli(): AgentCli {
+  const configured = process.env.AGENT_CLI;
+  if (configured === 'claude' || configured === 'codex') return configured;
+  // Keep test runner on Claude by default: it relies on chrome-control MCP tooling.
+  return 'claude';
+}
+
+function resolveCodexSandboxMode(): CodexSandboxMode {
+  const configured = process.env.CODEX_SANDBOX_MODE;
+  if (
+    configured === 'read-only' ||
+    configured === 'workspace-write' ||
+    configured === 'danger-full-access'
+  ) {
+    return configured;
+  }
+  return 'workspace-write';
+}
+
+function resolveCodexCommand(): string | null {
+  const home = process.env.HOME || '';
+  const nvmNodeBins = home
+    ? (() => {
+        const base = join(home, '.nvm', 'versions', 'node');
+        if (!existsSync(base)) return [] as string[];
+        try {
+          return readdirSync(base).map((ver) => join(base, ver, 'bin', 'codex'));
+        } catch {
+          return [] as string[];
+        }
+      })()
+    : [];
+  const candidates = [
+    process.env.AGENT_CLI_PATH,
+    process.env.CODEX_BIN,
+    join(dirname(process.execPath), 'codex'),
+    process.version ? join(home, '.nvm', 'versions', 'node', process.version, 'bin', 'codex') : undefined,
+    ...nvmNodeBins,
+    home ? join(home, '.bun', 'bin', 'codex') : undefined,
+    '/opt/homebrew/bin/codex',
+    '/usr/local/bin/codex',
+  ].filter((v): v is string => !!v && v.trim().length > 0);
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /**
  * Spawn Claude Code CLI with Chrome MCP browser automation tools.
  * No git auth needed — tests only use the browser, not the filesystem.
@@ -164,9 +217,28 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
     mkdirSync(LOG_DIR, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const logFile = join(LOG_DIR, `test-${taskId}-${timestamp}.jsonl`);
+    const lastMessageFile = join(LOG_DIR, `test-${taskId}-${timestamp}.last-message.txt`);
     const logStream = createWriteStream(logFile, { flags: 'a' });
 
     log.info(TAG, `Audit log: ${logFile}`);
+
+    let cli = resolveAgentCli();
+    let command = cli === 'codex' ? 'codex' : 'claude';
+    if (cli === 'codex') {
+      const codexPath = resolveCodexCommand();
+      if (codexPath) {
+        command = codexPath;
+      } else if (process.env.AGENT_CLI === 'codex') {
+        reject(new Error(
+          'AGENT_CLI=codex is set, but codex executable was not found. Set AGENT_CLI_PATH to the codex binary.'
+        ));
+        return;
+      } else {
+        log.warn(TAG, 'Codex CLI not found on server PATH; falling back to Claude CLI');
+        cli = 'claude';
+        command = 'claude';
+      }
+    }
 
     const allowedTools = [
       'mcp__chrome-control__open_url',
@@ -178,56 +250,80 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
       'mcp__chrome-control__get_page_content',
     ].join(',');
 
-    // Build MCP config for the chrome-control DXT server
-    const chromeControlServerPath = join(
-      homedir(),
-      'Library', 'Application Support', 'Claude', 'Claude Extensions',
-      'ant.dir.ant.anthropic.chrome-control', 'server', 'index.js',
-    );
-
-    if (!existsSync(chromeControlServerPath)) {
-      throw new Error(
-        `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
-        'Please ensure the "Control Chrome" extension is installed in Claude Desktop.'
+    let mcpConfig = '';
+    if (cli === 'claude') {
+      // Build MCP config for the chrome-control DXT server
+      const chromeControlServerPath = join(
+        homedir(),
+        'Library', 'Application Support', 'Claude', 'Claude Extensions',
+        'ant.dir.ant.anthropic.chrome-control', 'server', 'index.js',
       );
+
+      if (!existsSync(chromeControlServerPath)) {
+        throw new Error(
+          `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
+          'Please ensure the "Control Chrome" extension is installed in Claude Desktop.'
+        );
+      }
+
+      mcpConfig = JSON.stringify({
+        mcpServers: {
+          'chrome-control': {
+            command: 'node',
+            args: [chromeControlServerPath],
+          },
+        },
+      });
     }
 
-    const mcpConfig = JSON.stringify({
-      mcpServers: {
-        'chrome-control': {
-          command: 'node',
-          args: [chromeControlServerPath],
-        },
-      },
+    const tier = (process.env.CLAUDE_CODE_MODEL_TIER as 'fast' | 'balanced' | 'advanced' | undefined) || 'balanced';
+    const resolvedModel = resolveModelForTier(tier);
+    const codexSandbox = resolveCodexSandboxMode();
+    const args = cli === 'codex'
+      ? [
+          'exec',
+          '--json',
+          '--model', resolvedModel.model,
+          '--sandbox', codexSandbox,
+          '--output-last-message', lastMessageFile,
+          '-',
+        ]
+      : [
+          '--print',
+          '--output-format', 'stream-json',
+          '--model', resolvedModel.model,
+          '--max-budget-usd', String(MAX_BUDGET_USD),
+          '--allowedTools', allowedTools,
+          '--mcp-config', mcpConfig,
+          '--no-session-persistence',
+          '--verbose',
+        ];
+    log.info(TAG, 'Resolved test CLI model', {
+      cli,
+      tier: resolvedModel.tier,
+      provider: resolvedModel.provider,
+      model: resolvedModel.model,
+      codexSandbox: cli === 'codex' ? codexSandbox : undefined,
     });
-
-    const args = [
-      '--print',
-      '--output-format', 'stream-json',
-      '--model', 'claude-sonnet-4-6',
-      '--max-budget-usd', String(MAX_BUDGET_USD),
-      '--allowedTools', allowedTools,
-      '--mcp-config', mcpConfig,
-      '--no-session-persistence',
-      '--verbose',
-    ];
 
     // Build child process env based on auth mode
     const isLocal = process.env.CLAUDE_CAUDE_LOCAL === 'true';
     const childEnv = { ...process.env };
     // Always strip CLAUDECODE to avoid nested-session detection
     delete childEnv.CLAUDECODE;
-    if (isLocal) {
+    if (cli === 'claude' && isLocal) {
       delete childEnv.ANTHROPIC_API_KEY;
       delete childEnv.ANTHROPIC_BASE_URL;
       log.info(TAG, 'Local mode: using OAuth (ANTHROPIC_API_KEY stripped from child env)');
-    } else {
+    } else if (cli === 'claude') {
       log.info(TAG, 'Server mode: using ANTHROPIC_API_KEY for Claude Code CLI');
+    } else {
+      log.info(TAG, 'Using Codex CLI auth from its own environment/config');
     }
 
-    log.debug(TAG, `Running: claude ${args.join(' ')} (cwd: ${process.cwd()}, auth: ${isLocal ? 'oauth' : 'api-key'})`);
+    log.debug(TAG, `Running: ${command} ${args.join(' ')} (cwd: ${process.cwd()}, auth: ${isLocal ? 'oauth' : 'api-key'})`);
 
-    const child = spawn('claude', args, {
+    const child = spawn(command, args, {
       cwd: process.cwd(),
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -274,6 +370,9 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
           if (event.type === 'result' && event.result) {
             allText += event.result + '\n';
           }
+          if (cli === 'codex') {
+            allText += line + '\n';
+          }
         } catch {
           log.debug(TAG, `[raw] ${line.slice(0, 200)}`);
           allText += line + '\n';
@@ -293,13 +392,23 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
         logStream.write(lineBuffer + '\n');
         allText += lineBuffer + '\n';
       }
+      if (cli === 'codex') {
+        try {
+          const lastMessage = readFileSync(lastMessageFile, 'utf8');
+          if (lastMessage.trim()) {
+            allText += `\n${lastMessage}\n`;
+          }
+        } catch {
+          // Best-effort capture only
+        }
+      }
       logStream.end();
 
-      log.info(TAG, `Claude Code exited with code ${code}`, { logFile });
+      log.info(TAG, `${cli} CLI exited with code ${code}`, { logFile });
 
       if (code !== 0 && !allText) {
         reject(new Error(
-          `Claude Code CLI exited with code ${code}${stderrText ? `\nstderr: ${stderrText.slice(0, 500)}` : ''}`
+          `${cli} CLI exited with code ${code}${stderrText ? `\nstderr: ${stderrText.slice(0, 500)}` : ''}`
         ));
         return;
       }
@@ -310,7 +419,7 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
     child.on('error', (err) => {
       clearTimeout(timer);
       logStream.end();
-      reject(new Error(`Failed to spawn Claude Code CLI: ${err.message}`));
+      reject(new Error(`Failed to spawn ${cli} CLI: ${err.message}`));
     });
   });
 }
