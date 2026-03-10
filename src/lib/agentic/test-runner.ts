@@ -67,7 +67,7 @@ export async function runTests(task: Task, testEnvironmentUrl: string): Promise<
     // 2. Build the test prompt
     const prompt = buildTestPrompt(task, artifactContents, testEnvironmentUrl);
 
-    log.info(TAG, `Invoking Claude Code CLI with $${MAX_BUDGET_USD} budget`, {
+    log.info(TAG, `Invoking test CLI with $${MAX_BUDGET_USD} budget`, {
       taskId: task.id,
       artifactCount: artifactContents.length,
       testEnvironmentUrl,
@@ -162,8 +162,7 @@ type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 function resolveAgentCli(): AgentCli {
   const configured = process.env.AGENT_CLI;
   if (configured === 'claude' || configured === 'codex') return configured;
-  // Keep test runner on Claude by default: it relies on chrome-control MCP tooling.
-  return 'claude';
+  return process.env.MODEL_ADAPTER === 'openai' ? 'codex' : 'claude';
 }
 
 function resolveCodexSandboxMode(): CodexSandboxMode {
@@ -260,20 +259,40 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
       );
 
       if (!existsSync(chromeControlServerPath)) {
-        throw new Error(
-          `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
-          'Please ensure the "Control Chrome" extension is installed in Claude Desktop.'
-        );
+        // If Claude was not explicitly requested, prefer falling back to Codex over hard-failing.
+        if (process.env.AGENT_CLI !== 'claude') {
+          const codexPath = resolveCodexCommand();
+          if (codexPath) {
+            log.warn(
+              TAG,
+              `Claude chrome-control extension not found at ${chromeControlServerPath}; falling back to Codex CLI.`,
+            );
+            cli = 'codex';
+            command = codexPath;
+          } else {
+            throw new Error(
+              `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
+              'Install the "Control Chrome" extension in Claude Desktop, or set AGENT_CLI=codex with a valid codex binary.'
+            );
+          }
+        } else {
+          throw new Error(
+            `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
+            'Please ensure the "Control Chrome" extension is installed in Claude Desktop.'
+          );
+        }
       }
 
-      mcpConfig = JSON.stringify({
-        mcpServers: {
-          'chrome-control': {
-            command: 'node',
-            args: [chromeControlServerPath],
+      if (cli === 'claude') {
+        mcpConfig = JSON.stringify({
+          mcpServers: {
+            'chrome-control': {
+              command: 'node',
+              args: [chromeControlServerPath],
+            },
           },
-        },
-      });
+        });
+      }
     }
 
     const tier = (process.env.CLAUDE_CODE_MODEL_TIER as 'fast' | 'balanced' | 'advanced' | undefined) || 'balanced';
@@ -558,73 +577,27 @@ function buildTestPrompt(
 You are a QA tester executing the test cases defined above against a live web application using Chrome browser automation via MCP tools. Follow these instructions precisely:
 
 ### Available Tools
-You have the following Chrome control tools (AppleScript-based):
+Use whichever browser MCP tool namespace is actually available in this session:
 
-- \`mcp__chrome-control__open_url\` — Navigate to a URL in Chrome (params: \`url\`, \`new_tab\`)
-- \`mcp__chrome-control__get_current_tab\` — Get current tab info (URL, title, id)
-- \`mcp__chrome-control__list_tabs\` — List all open tabs
-- \`mcp__chrome-control__switch_to_tab\` — Switch to a specific tab by ID (param: \`tab_id\`)
-- \`mcp__chrome-control__reload_tab\` — Reload a tab (param: \`tab_id\`)
-- \`mcp__chrome-control__execute_javascript\` — Execute JavaScript in a tab (params: \`code\`, \`tab_id\`)
-- \`mcp__chrome-control__get_page_content\` — Get text content of a page (param: \`tab_id\`)
+- **Preferred for Codex:** \`mcp__chrome-devtools__*\` tools (e.g. \`new_page\`, \`navigate_page\`, \`take_snapshot\`, \`click\`, \`fill\`, \`evaluate_script\`, \`resize_page\`, \`wait_for\`, \`list_console_messages\`)
+- **Used with Claude + chrome-control extension:** \`mcp__chrome-control__*\` tools (e.g. \`open_url\`, \`get_page_content\`, \`execute_javascript\`)
+
+If both are available, prefer \`mcp__chrome-devtools__*\`.
 
 ### Setup
-1. First, call \`mcp__chrome-control__open_url\` to navigate to the test environment URL: ${testEnvironmentUrl}
-2. Wait a moment for the page to load, then verify with \`mcp__chrome-control__get_page_content\`.
+1. Open the test environment URL: ${testEnvironmentUrl}
+2. Confirm the app has loaded by reading page content or snapshot output.
 
 ### Test Execution Patterns
 
-**Navigate to a page:**
-\`\`\`
-mcp__chrome-control__open_url({ url: "${testEnvironmentUrl}/some-path", new_tab: false })
-\`\`\`
+Use equivalent actions in whichever tool family is available:
 
-**Read page text content:**
-\`\`\`
-mcp__chrome-control__get_page_content({})
-\`\`\`
-
-**Check if an element exists or is visible:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "!!document.querySelector('.my-element')" })
-\`\`\`
-
-**Get element text:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelector('.my-element')?.textContent" })
-\`\`\`
-
-**Click a button or link:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelector('button.submit')?.click()" })
-\`\`\`
-
-**Fill a form input:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "const el = document.querySelector('input[name=email]'); if(el) { el.value = 'test@test.com'; el.dispatchEvent(new Event('input', {bubbles:true})); }" })
-\`\`\`
-
-**Check form validation:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelector('.error-message')?.textContent || 'no error'" })
-\`\`\`
-
-**Get number of items in a list:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelectorAll('.list-item').length" })
-\`\`\`
-
-**Check for console errors (by injecting a listener):**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "window.__testErrors = window.__testErrors || []; window.addEventListener('error', e => window.__testErrors.push(e.message)); 'listener installed'" })
-// Later, check collected errors:
-mcp__chrome-control__execute_javascript({ code: "JSON.stringify(window.__testErrors || [])" })
-\`\`\`
-
-**Wait for dynamic content:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "new Promise(resolve => setTimeout(() => resolve(document.querySelector('.loaded')?.textContent || 'not loaded'), 2000))" })
-\`\`\`
+- Navigate: \`new_page({ url })\` or \`navigate_page({ type: "url", url })\`, or \`open_url({ url, new_tab: false })\`
+- Inspect page: \`take_snapshot({})\` / \`evaluate_script(...)\` or \`get_page_content({})\` / \`execute_javascript(...)\`
+- Interact: \`click\` / \`fill\` / \`press_key\` (or evaluation-based interactions in chrome-control)
+- Resize for responsive checks: \`resize_page({ width, height })\`
+- Wait for async UI: \`wait_for({ text: [...] })\` when text is appropriate, or use a short in-page delay via \`evaluate_script\` / \`execute_javascript\`
+- Check errors: inspect browser console/log output tools if available, or use JavaScript-based error collection
 
 ### CRITICAL SAFETY RULES
 - You are testing a LIVE application with REAL data. NEVER click buttons that change task status (e.g., "Mark Done", "Request Changes", "Move to…", "Delete", "Archive"). These are destructive actions that modify real data.
@@ -635,10 +608,10 @@ mcp__chrome-control__execute_javascript({ code: "new Promise(resolve => setTimeo
 ### Test Execution
 For each test case in the test plan above:
 
-1. **Navigate** to the relevant page using \`open_url\`.
-2. **Read the page** using \`get_page_content\` or \`execute_javascript\` to verify page structure and content.
-3. **Interact** with the page using \`execute_javascript\` — click UI elements to open panels, expand sections, fill search fields, etc. But NEVER click destructive action buttons (status changes, delete, submit).
-4. **Verify** expected outcomes by reading DOM state with \`execute_javascript\`.
+1. **Navigate** to the relevant page using browser MCP navigation tools.
+2. **Read the page** using \`take_snapshot\`, \`evaluate_script\`, \`get_page_content\`, or \`execute_javascript\` to verify page structure and content.
+3. **Interact** with the page using browser MCP interaction tools — click UI elements to open panels, expand sections, fill search fields, etc. But NEVER click destructive action buttons (status changes, delete, submit).
+4. **Verify** expected outcomes by reading DOM state with \`evaluate_script\` or \`execute_javascript\`.
 5. **Check for errors** using injected error listeners.
 6. Continue to the next test case, regardless of pass/fail.
 
@@ -677,7 +650,7 @@ Important:
 - If a test fails, continue executing remaining tests (do not stop on first failure).
 - Be precise about what passed and what failed — the report must be accurate.
 - The test report is the LAST thing you output.
-- Use ONLY the mcp__chrome-control__* tools listed above. Do NOT use Bash, Read, or any other tools.
+- Use ONLY browser MCP tools (\`mcp__chrome-devtools__*\` or \`mcp__chrome-control__*\`). Do NOT use Bash, Read, or any non-browser tools.
 `);
 
   return sections.join('\n');

@@ -77,6 +77,26 @@ JIRA_API_TOKEN=                           # optional, Jira API token
 - **Model IDs are configurable**: Set per-tier model names in `config/models.yaml` (or per-agent `model:` overrides) to use provider-specific model IDs.
 - **With Agentic FS running**: Persistence, RAG, and semantic search activate. Without it, the system runs with in-memory task storage.
 
+### Run Tests Prerequisites
+
+The ticket-level **Run Tests** flow uses browser MCP automation. The required browser setup depends on the CLI selected by `AGENT_CLI`:
+
+- **Codex (`AGENT_CLI=codex`, or auto-selected with `MODEL_ADAPTER=openai`)**: Register the Chrome DevTools MCP server in Codex before running tests.
+
+```bash
+codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
+codex mcp list
+```
+
+- **Claude (`AGENT_CLI=claude`)**: Install the Claude Desktop **Control Chrome** extension. The test runner expects the local server at:
+
+```text
+~/Library/Application Support/Claude/Claude Extensions/ant.dir.ant.anthropic.chrome-control/server/index.js
+```
+
+- After adding or changing MCP configuration, restart the Agility Flow dev server before using **Run Tests**.
+- The current built-in browser automation path is Chrome-based. If the required MCP server is missing, test execution will not be able to complete browser-driven checks.
+
 ---
 
 ## Project Structure
