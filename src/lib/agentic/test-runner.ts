@@ -503,6 +503,38 @@ function processStreamEvent(event: Record<string, unknown>, taskId: string): voi
         break;
       }
 
+      if (itemType === 'mcp_tool_call') {
+        const toolName = String(item?.tool || '').trim();
+        const server = String(item?.server || '').trim();
+        const status = String(item?.status || (type === 'item.started' ? 'in_progress' : 'completed'));
+        const error = String(item?.error || '').trim();
+        const input = item?.arguments;
+        const result = item?.result as { content?: Array<{ text?: string }> } | undefined;
+        const output = result?.content
+          ?.map((entry) => String(entry?.text || '').trim())
+          .filter(Boolean)
+          .join('\n\n')
+          .slice(0, 500);
+
+        log.info(TAG, `[mcp_tool_call:${status}] ${server ? `${server}.` : ''}${toolName}`.slice(0, 200));
+        eventBus.emit(createEvent(
+          'agent:tool_call',
+          `Test runner ${status === 'completed' ? 'completed' : 'started'} ${server ? `${server} ` : ''}${toolName}`,
+          {
+            taskId,
+            tool: toolName || 'mcp_tool_call',
+            input,
+            status,
+            output: output || undefined,
+            error: error || undefined,
+            server: server || undefined,
+          },
+          TAG,
+          taskId,
+        ));
+        break;
+      }
+
       log.debug(TAG, `[${type}] ${JSON.stringify(event).slice(0, 150)}`);
       break;
     }

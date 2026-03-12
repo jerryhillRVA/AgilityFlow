@@ -44,6 +44,7 @@ function renderEventData(event: AgentEvent): React.ReactNode {
     case 'agent:tool_call':
       return (
         <div className="space-y-1">
+          {has('server') && <DataField label="Server" value={str('server')} />}
           {has('tool') && <DataField label="Tool" value={str('tool')} />}
           {has('input') && (
             <div>
@@ -56,6 +57,7 @@ function renderEventData(event: AgentEvent): React.ReactNode {
           )}
           {has('status') && <DataField label="Status" value={str('status')} />}
           {has('exitCode') && <DataField label="Exit Code" value={str('exitCode')} mono />}
+          {has('error') && <DataField label="Error" value={str('error')} pre />}
           {has('output') && (
             <div>
               <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>Output:</span>
