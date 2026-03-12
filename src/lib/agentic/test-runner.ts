@@ -451,6 +451,78 @@ function processStreamEvent(event: Record<string, unknown>, taskId: string): voi
   const type = event.type as string;
 
   switch (type) {
+    case 'thread.started':
+      log.info(TAG, 'Codex thread started');
+      break;
+
+    case 'turn.started':
+      log.debug(TAG, '[turn.started]');
+      break;
+
+    case 'item.started':
+    case 'item.completed': {
+      const item = event.item as Record<string, unknown> | undefined;
+      const itemType = item?.type as string | undefined;
+
+      if (itemType === 'agent_message' && type === 'item.completed') {
+        const text = String(item?.text || '').trim();
+        if (!text) break;
+
+        log.info(TAG, `[agent_message] ${text.slice(0, 300)}`);
+        eventBus.emit(createEvent(
+          'agent:thinking',
+          `Test runner: ${text.slice(0, 150)}`,
+          { taskId, text: text.slice(0, 500) },
+          TAG,
+          taskId,
+        ));
+        break;
+      }
+
+      if (itemType === 'command_execution') {
+        const command = String(item?.command || '').trim();
+        const status = String(item?.status || (type === 'item.started' ? 'in_progress' : 'completed'));
+        const exitCode = item?.exit_code;
+        const aggregatedOutput = String(item?.aggregated_output || '').trim();
+
+        log.info(TAG, `[command_execution:${status}] ${command.slice(0, 200)}`);
+        eventBus.emit(createEvent(
+          'agent:tool_call',
+          `Test runner ${status === 'completed' ? 'completed' : 'started'} command execution`,
+          {
+            taskId,
+            tool: 'command_execution',
+            input: command.slice(0, 500),
+            status,
+            exitCode: typeof exitCode === 'number' ? exitCode : undefined,
+            output: aggregatedOutput ? aggregatedOutput.slice(0, 500) : undefined,
+          },
+          TAG,
+          taskId,
+        ));
+        break;
+      }
+
+      log.debug(TAG, `[${type}] ${JSON.stringify(event).slice(0, 150)}`);
+      break;
+    }
+
+    case 'turn.completed': {
+      const usage = event.usage as Record<string, unknown> | undefined;
+      const inputTokens = usage?.input_tokens as number | undefined;
+      const outputTokens = usage?.output_tokens as number | undefined;
+
+      log.info(TAG, `[turn.completed] input=${inputTokens ?? '?'} output=${outputTokens ?? '?'}`);
+      eventBus.emit(createEvent(
+        'agent:completed',
+        'Test runner completed a turn',
+        { taskId, inputTokens, outputTokens },
+        TAG,
+        taskId,
+      ));
+      break;
+    }
+
     case 'system': {
       const subtype = event.subtype as string;
       if (subtype === 'init') {
