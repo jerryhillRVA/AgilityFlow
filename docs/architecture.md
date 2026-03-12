@@ -123,7 +123,7 @@ Three-column layout persists across all screens:
 | Screen | Description | Status |
 |--------|-------------|--------|
 | **Jobs** | Submit tasks to orchestrator. "Do Work" form with title, description, priority. Job history with status tracking. | ✅ Core flow |
-| **Jobs — Run Tests** | Trigger test execution agents. Ticket-level, system, regression. View results inline. | 🔲 |
+| **Jobs — Run Tests** | Trigger test execution agents. Ticket-level, system, regression. Requires browser MCP setup (`chrome-devtools` for Codex, `Control Chrome` extension for Claude). View results inline. | 🔲 |
 | **Jobs — Workflows** | Multi-step agent workflows. Sequential or parallel execution. Reusable templates. | 🔲 |
 | **Agents** | Visual registry of all agents. Cards with name, role, model, skills, tools, status. | ✅ Registry view |
 | **Agents — Detail** | View/edit agent `.md` definition, memory contents, execution stats, token usage | 🔲 |

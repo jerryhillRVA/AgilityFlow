@@ -20,6 +20,12 @@ const eventTypeColors: Record<string, string> = {
   'orchestrator:plan_ready': 'var(--accent-violet)',
   'task:transition_action': 'var(--accent-amber)',
   'task:subtask_cascade': 'var(--accent-green)',
+  'implementation:started': 'var(--accent-violet)',
+  'implementation:completed': 'var(--accent-green)',
+  'implementation:failed': 'var(--accent-red)',
+  'test:started': 'var(--accent-green)',
+  'test:completed': 'var(--accent-green)',
+  'test:failed': 'var(--accent-red)',
   'system:info': 'var(--text-muted)',
   'system:error': 'var(--accent-red)',
 };
@@ -38,6 +44,7 @@ function renderEventData(event: AgentEvent): React.ReactNode {
     case 'agent:tool_call':
       return (
         <div className="space-y-1">
+          {has('server') && <DataField label="Server" value={str('server')} />}
           {has('tool') && <DataField label="Tool" value={str('tool')} />}
           {has('input') && (
             <div>
@@ -45,6 +52,18 @@ function renderEventData(event: AgentEvent): React.ReactNode {
               <pre className="text-[9px] mt-0.5 p-1.5 rounded overflow-x-auto whitespace-pre-wrap break-all"
                 style={{ background: 'var(--bg-primary)', color: 'var(--text-secondary)' }}>
                 {typeof d.input === 'string' ? d.input : JSON.stringify(d.input, null, 2)}
+              </pre>
+            </div>
+          )}
+          {has('status') && <DataField label="Status" value={str('status')} />}
+          {has('exitCode') && <DataField label="Exit Code" value={str('exitCode')} mono />}
+          {has('error') && <DataField label="Error" value={str('error')} pre />}
+          {has('output') && (
+            <div>
+              <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>Output:</span>
+              <pre className="text-[9px] mt-0.5 p-1.5 rounded overflow-x-auto whitespace-pre-wrap break-all"
+                style={{ background: 'var(--bg-primary)', color: 'var(--text-secondary)' }}>
+                {str('output')}
               </pre>
             </div>
           )}

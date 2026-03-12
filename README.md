@@ -57,12 +57,45 @@ Create a `.env.local` file:
 ```env
 AGENTIC_FS_URL=http://localhost:8000
 AGENTIC_FS_TENANT=default
-ANTHROPIC_API_KEY=                        # leave empty for mock mode
+MODEL_ADAPTER=anthropic                   # anthropic | openai | mock
+AGENT_CLI=                                # optional: auto | claude | codex (empty = auto)
+AGENT_CLI_PATH=                           # optional absolute path to codex/claude binary
+CODEX_SANDBOX_MODE=workspace-write        # read-only | workspace-write | danger-full-access
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=                          # optional, for OpenAI-compatible providers
+JIRA_BASE_URL=                            # optional, for Jira MCP (e.g. https://your-org.atlassian.net)
+JIRA_EMAIL=                               # optional, Jira account email
+JIRA_API_TOKEN=                           # optional, Jira API token
 ```
 
-- **Without an API key**: The system uses a mock adapter that simulates agent delegation and responses — useful for UI development and testing.
-- **With an API key**: The adapter factory auto-switches to the Anthropic adapter for live LLM calls.
+- **`MODEL_ADAPTER=mock`**: Uses the mock adapter for UI development/testing.
+- **`MODEL_ADAPTER=anthropic`**: Uses Anthropic models via `ANTHROPIC_API_KEY`.
+- **`MODEL_ADAPTER=openai`**: Uses the OpenAI SDK via `OPENAI_API_KEY` and optional `OPENAI_BASE_URL`, with automatic endpoint routing between Responses API and Chat Completions.
+- **`AGENT_CLI`**: Optional override for implementation/test CLI (`claude` or `codex`). Empty uses auto-selection.
+- **`CODEX_SANDBOX_MODE`**: Sandbox mode passed to `codex exec --sandbox`.
+- **Model IDs are configurable**: Set per-tier model names in `config/models.yaml` (or per-agent `model:` overrides) to use provider-specific model IDs.
 - **With Agentic FS running**: Persistence, RAG, and semantic search activate. Without it, the system runs with in-memory task storage.
+
+### Run Tests Prerequisites
+
+The ticket-level **Run Tests** flow uses browser MCP automation. The required browser setup depends on the CLI selected by `AGENT_CLI`:
+
+- **Codex (`AGENT_CLI=codex`, or auto-selected with `MODEL_ADAPTER=openai`)**: Register the Chrome DevTools MCP server in Codex before running tests.
+
+```bash
+codex mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
+codex mcp list
+```
+
+- **Claude (`AGENT_CLI=claude`)**: Install the Claude Desktop **Control Chrome** extension. The test runner expects the local server at:
+
+```text
+~/Library/Application Support/Claude/Claude Extensions/ant.dir.ant.anthropic.chrome-control/server/index.js
+```
+
+- After adding or changing MCP configuration, restart the Agility Flow dev server before using **Run Tests**.
+- The current built-in browser automation path is Chrome-based. If the required MCP server is missing, test execution will not be able to complete browser-driven checks.
 
 ---
 
@@ -137,8 +170,9 @@ When a task is submitted, the orchestrator agent analyzes it and delegates to th
 ### Model Adapters
 
 A factory pattern selects the adapter based on environment configuration:
-- **MockAdapter** — Returns simulated responses with realistic tool calls. Used when no API key is set.
-- **AnthropicAdapter** — Uses `@anthropic-ai/sdk` for real Claude API calls. Activated when `ANTHROPIC_API_KEY` is set.
+- **MockAdapter** — Returns simulated responses with realistic tool calls.
+- **AnthropicAdapter** — Uses `@anthropic-ai/sdk` for Claude API calls (`MODEL_ADAPTER=anthropic`).
+- **OpenAIAdapter** — Uses `openai` SDK with automatic endpoint routing (`MODEL_ADAPTER=openai`, optional `OPENAI_BASE_URL`).
 
 ### Agentic Filesystem
 
@@ -191,7 +225,10 @@ All agent activity flows through an in-process event bus. Events are buffered (l
 |----------|----------|-------------|
 | `AGENTIC_FS_URL` | No | Agentic FS service URL (default: `http://localhost:8000`) |
 | `AGENTIC_FS_TENANT` | No | Tenant scope for Agentic FS (default: `default`) |
-| `ANTHROPIC_API_KEY` | No | Anthropic API key. Empty = mock mode. |
+| `MODEL_ADAPTER` | No | Adapter selector: `anthropic`, `openai`, or `mock` (default: `mock`) |
+| `ANTHROPIC_API_KEY` | No | Anthropic API key when `MODEL_ADAPTER=anthropic`. |
+| `OPENAI_API_KEY` | No | API key when `MODEL_ADAPTER=openai`. |
+| `OPENAI_BASE_URL` | No | Optional base URL for OpenAI-compatible APIs. |
 | `LOG_LEVEL` | No | Log verbosity: `debug`, `info`, `warn`, `error` (default: `debug` in dev, `info` in prod) |
 | `LOG_FILE` | No | When set, tee log output to this file in addition to stdout/stderr (e.g. `server.log`) |
 
@@ -230,6 +267,7 @@ All agent activity flows through an in-process event bus. Events are buffered (l
 | TypeScript | 5.x | Type safety |
 | Tailwind CSS | 4.x | Utility-first CSS (dark theme) |
 | `@anthropic-ai/sdk` | 0.78.x | Anthropic Claude API client |
+| `openai` | 6.x | OpenAI/OpenAI-compatible Chat Completions client |
 | `gray-matter` | 4.0.x | YAML frontmatter parsing from markdown |
 | `yaml` | 2.8.x | Config file parsing |
 | `lucide-react` | 0.575.x | Icon library |
@@ -239,7 +277,7 @@ All agent activity flows through an in-process event bus. Events are buffered (l
 
 ## Next Steps
 
-1. **Go live with Anthropic** — Set `ANTHROPIC_API_KEY` in `.env.local`, restart the dev server. The adapter factory auto-switches.
+1. **Go live with an LLM provider** — Set `MODEL_ADAPTER` to `anthropic` or `openai` and provide the corresponding API key in `.env.local`.
 2. **Connect Agentic FS** — Start the Agentic FS service at `localhost:8000`. Persistence, RAG, and search will activate.
 3. **Phase 4: Work Management** — Tickets, Epics, Stories, Sprints with full CRUD backed by Agentic FS.
 4. **Phase 5: SDLC** — PM dashboards, specs, design docs, architecture, documentation, testing screens.

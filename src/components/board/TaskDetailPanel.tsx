@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, User, Clock, Tag, FileText, GitBranch, ArrowUpRight, ChevronDown, ChevronRight, Activity, AlertTriangle, Zap, Rocket, Loader2, ExternalLink } from 'lucide-react';
+import { X, User, Clock, Tag, FileText, GitBranch, ArrowUpRight, ChevronDown, ChevronRight, Activity, AlertTriangle, Zap, Rocket, Loader2, ExternalLink, CheckCircle2, XCircle, ListChecks } from 'lucide-react';
 import type { Task, TaskStatus, TaskArtifact, IterationRecord } from '@/types/task';
 import { StatusTransitionButtons } from './StatusTransitionButtons';
 import { ArtifactViewerModal } from './ArtifactViewerModal';
@@ -24,17 +24,418 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: 'var(--text-muted)',
 };
 
+type ParsedTestStatus = 'PASS' | 'FAIL' | 'UNKNOWN';
+
+interface ParsedTestCase {
+  name: string;
+  status: ParsedTestStatus;
+  stepsExecuted?: string;
+  result?: string;
+  notes?: string;
+  failureDetails?: string;
+}
+
+interface ParsedTestReport {
+  normalizedReport: string;
+  totalTests?: number;
+  passedCount?: number;
+  failedCount?: number;
+  overallStatus?: string;
+  testCases: ParsedTestCase[];
+  issuesFound?: string;
+  issueItems: string[];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cleanMarkdownValue(value?: string): string | undefined {
+  const cleaned = value?.trim().replace(/\n{3,}/g, '\n\n');
+  return cleaned ? cleaned : undefined;
+}
+
+function normalizeTestReportContent(report: string): string {
+  let normalized = report.trim();
+
+  if (normalized.includes('\\n')) {
+    normalized = normalized
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\"/g, '"')
+      .replace(/\\t/g, '\t');
+  }
+
+  const starts = [...normalized.matchAll(/(?:^|\n)(?:#\s+)?Test Execution Report\b/gm)];
+  if (starts.length > 0) {
+    const lastIndex = starts[starts.length - 1].index;
+    if (lastIndex !== undefined) {
+      normalized = normalized.slice(lastIndex).trim();
+    }
+  }
+
+  return normalized;
+}
+
+function matchMarkdownLabel(label: string): string {
+  const escaped = escapeRegExp(label);
+  return `(?:\\*\\*)?${escaped}:(?:\\*\\*)?`;
+}
+
+function parseSummaryCount(report: string, label: string): number | undefined {
+  const match = report.match(new RegExp(`^\\s*-?\\s*${matchMarkdownLabel(label)}\\s*(\\d+)\\s*$`, 'm'));
+  if (!match) return undefined;
+  return parseInt(match[1], 10);
+}
+
+function extractReportSection(report: string, title: string): string | undefined {
+  const match = report.match(new RegExp(`(?:^|\\n)##\\s+${escapeRegExp(title)}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`));
+  return cleanMarkdownValue(match?.[1]);
+}
+
+function extractField(section: string, label: string): string | undefined {
+  const match = section.match(new RegExp(`^\\s*-\\s*${matchMarkdownLabel(label)}\\s*(.+)\\s*$`, 'm'));
+  return cleanMarkdownValue(match?.[1]);
+}
+
+function parseFallbackTestCases(section: string): ParsedTestCase[] {
+  return section
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^-\s+.*\b(?:PASS|FAIL)\b/i.test(line))
+    .map(line => {
+      const status: ParsedTestStatus = /\bFAIL\b/i.test(line)
+        ? 'FAIL'
+        : /\bPASS\b/i.test(line)
+          ? 'PASS'
+          : 'UNKNOWN';
+      const name = line
+        .replace(/^-+\s*/, '')
+        .replace(/^[^A-Za-z0-9]+/, '')
+        .trim();
+
+      return {
+        name,
+        status,
+        failureDetails: status === 'FAIL' ? name : undefined,
+      };
+    });
+}
+
+function parseMarkdownStyleTestCases(report: string): ParsedTestCase[] {
+  const testResults = extractReportSection(report, 'Test Results') || extractReportSection(report, 'Results');
+  if (!testResults) return [];
+
+  if (!/^###\s+/m.test(testResults)) {
+    return parseFallbackTestCases(testResults);
+  }
+
+  return testResults
+    .split(/^###\s+/m)
+    .slice(1)
+    .map(chunk => {
+      const [firstLine, ...rest] = chunk.split('\n');
+      const section = rest.join('\n').trim();
+      const statusValue = extractField(section, 'Status')?.toUpperCase();
+      const status: ParsedTestStatus = statusValue?.includes('PASS')
+        ? 'PASS'
+        : statusValue?.includes('FAIL')
+          ? 'FAIL'
+          : 'UNKNOWN';
+      const stepsExecuted = extractField(section, 'Steps Executed');
+      const result = extractField(section, 'Result');
+      const notes = extractField(section, 'Notes');
+      const failureDetails = status === 'FAIL'
+        ? cleanMarkdownValue([result, notes].filter(Boolean).join('\n\n'))
+        : undefined;
+
+      return {
+        name: firstLine.trim(),
+        status,
+        stepsExecuted,
+        result,
+        notes,
+        failureDetails,
+      };
+    })
+    .filter(testCase => testCase.name.length > 0);
+}
+
+function parsePlainStyleField(section: string, label: string): string | undefined {
+  const match = section.match(new RegExp(`^\\s*${escapeRegExp(label)}:\\s*([\\s\\S]*?)(?=\\n\\s*[A-Za-z][A-Za-z ]*:|$)`, 'm'));
+  return cleanMarkdownValue(match?.[1]);
+}
+
+function parsePlainStyleTestCases(report: string): ParsedTestCase[] {
+  const matches = report.matchAll(/(?:^|\n)\s*(TC-[^\n]+)\n([\s\S]*?)(?=\n\s*TC-[^\n]+\n|\n\s*(?:##\s+)?Issues Found\b|$)/g);
+  const testCases: ParsedTestCase[] = [];
+
+  for (const match of matches) {
+    const name = match[1]?.trim();
+    const section = match[2]?.trim() || '';
+    if (!name) continue;
+
+    const statusValue = parsePlainStyleField(section, 'Status')?.toUpperCase();
+    const status: ParsedTestStatus = statusValue?.includes('PASS')
+      ? 'PASS'
+      : statusValue?.includes('FAIL')
+        ? 'FAIL'
+        : 'UNKNOWN';
+    const stepsExecuted = parsePlainStyleField(section, 'Steps Executed');
+    const result = parsePlainStyleField(section, 'Result');
+    const notes = parsePlainStyleField(section, 'Notes');
+
+    testCases.push({
+      name,
+      status,
+      stepsExecuted,
+      result,
+      notes,
+      failureDetails: status === 'FAIL'
+        ? cleanMarkdownValue([result, notes].filter(Boolean).join('\n\n'))
+        : undefined,
+    });
+  }
+
+  return testCases;
+}
+
+function parseIssueItems(report: string): string[] {
+  const issuesBody = extractReportSection(report, 'Issues Found')
+    || cleanMarkdownValue(report.match(/(?:^|\n)\s*(?:##\s+)?Issues Found\s*\n([\s\S]*)/)?.[1]);
+  if (!issuesBody) return [];
+
+  return issuesBody
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => line.replace(/^[-*]\s*/, ''));
+}
+
+function dedupeTestCases(testCases: ParsedTestCase[]): ParsedTestCase[] {
+  const deduped = new Map<string, ParsedTestCase>();
+
+  for (const testCase of testCases) {
+    const existing = deduped.get(testCase.name);
+    if (!existing) {
+      deduped.set(testCase.name, testCase);
+      continue;
+    }
+
+    const existingScore = Number(existing.status !== 'UNKNOWN') + Number(!!existing.stepsExecuted) + Number(!!existing.result) + Number(!!existing.notes);
+    const nextScore = Number(testCase.status !== 'UNKNOWN') + Number(!!testCase.stepsExecuted) + Number(!!testCase.result) + Number(!!testCase.notes);
+    if (nextScore > existingScore) {
+      deduped.set(testCase.name, testCase);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
+function parseTestCases(report: string): ParsedTestCase[] {
+  return dedupeTestCases([
+    ...parseMarkdownStyleTestCases(report),
+    ...parsePlainStyleTestCases(report),
+  ]);
+}
+
+function parseTestReport(report: string): ParsedTestReport {
+  const normalizedReport = normalizeTestReportContent(report);
+  const issuesFound = extractReportSection(normalizedReport, 'Issues Found') || cleanMarkdownValue(
+    normalizedReport.match(/(?:^|\n)\s*(?:##\s+)?Issues Found\s*\n([\s\S]*)/)?.[1]
+  );
+
+  return {
+    totalTests: parseSummaryCount(normalizedReport, 'Total Tests'),
+    passedCount: parseSummaryCount(normalizedReport, 'Passed'),
+    failedCount: parseSummaryCount(normalizedReport, 'Failed'),
+    overallStatus: normalizedReport.match(new RegExp(`${matchMarkdownLabel('Status')}\\s*([A-Z]+)`))?.[1],
+    testCases: parseTestCases(normalizedReport),
+    issuesFound,
+    issueItems: parseIssueItems(normalizedReport),
+    normalizedReport,
+  };
+}
+
+function TestSummaryStat({
+  label,
+  value,
+  color,
+  borderColor,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  borderColor: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded p-2 text-left transition-colors"
+      style={{
+        background: active ? 'var(--bg-primary)' : 'var(--bg-tertiary)',
+        border: `1px solid ${borderColor}`,
+        boxShadow: active ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.04)' : 'none',
+      }}
+    >
+      <div className="text-[9px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+        {label}
+      </div>
+      <div className="text-sm font-semibold" style={{ color }}>
+        {value}
+      </div>
+    </button>
+  );
+}
+
+function ParsedTestResultsSection({ report }: { report: string }) {
+  const parsed = parseTestReport(report);
+  const [filter, setFilter] = useState<'all' | 'passed' | 'failed'>('all');
+  const totalTests = parsed.totalTests ?? parsed.testCases.length;
+  const passedCount = parsed.passedCount ?? parsed.testCases.filter(testCase => testCase.status === 'PASS').length;
+  const failedCount = parsed.failedCount ?? parsed.testCases.filter(testCase => testCase.status === 'FAIL').length;
+  const visibleTestCases = parsed.testCases.filter(testCase => (
+    filter === 'all'
+      ? true
+      : filter === 'passed'
+        ? testCase.status === 'PASS'
+        : testCase.status === 'FAIL'
+  ));
+
+  if (parsed.testCases.length === 0 && !parsed.issuesFound && totalTests === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+        <ListChecks size={11} />
+        Individual Tests
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <TestSummaryStat
+          label="Total"
+          value={String(totalTests)}
+          color="var(--text-primary)"
+          borderColor="var(--border)"
+          active={filter === 'all'}
+          onClick={() => setFilter('all')}
+        />
+        <TestSummaryStat
+          label="Passed"
+          value={String(passedCount)}
+          color="var(--accent-green)"
+          borderColor="rgba(34, 197, 94, 0.2)"
+          active={filter === 'passed'}
+          onClick={() => setFilter('passed')}
+        />
+        <TestSummaryStat
+          label="Failed"
+          value={String(failedCount)}
+          color={failedCount > 0 ? 'var(--accent-red)' : 'var(--text-muted)'}
+          borderColor={failedCount > 0 ? 'rgba(248, 113, 113, 0.2)' : 'var(--border)'}
+          active={filter === 'failed'}
+          onClick={() => setFilter('failed')}
+        />
+      </div>
+
+      {parsed.overallStatus && (
+        <div className="text-[10px] mb-3" style={{ color: parsed.overallStatus === 'PASSED' ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+          Overall status: {parsed.overallStatus}
+        </div>
+      )}
+
+      {parsed.testCases.length > 0 ? (
+        <div>
+          <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+            {filter === 'all' ? 'All Tests' : filter === 'passed' ? 'Passed Tests' : 'Failed Tests'}
+          </div>
+          <div className="space-y-2.5">
+          {visibleTestCases.map((testCase, index) => {
+            const isFailed = testCase.status === 'FAIL';
+            const isPassed = testCase.status === 'PASS';
+            const accent = isPassed ? 'var(--accent-green)' : isFailed ? 'var(--accent-red)' : 'var(--text-muted)';
+            const badgeBackground = isPassed ? 'rgba(34, 197, 94, 0.14)' : isFailed ? 'rgba(248, 113, 113, 0.14)' : 'var(--bg-primary)';
+
+            return (
+              <div
+                key={`${testCase.name}-${index}`}
+                className="rounded p-3"
+                style={{
+                  background: 'var(--bg-tertiary)',
+                  border: `1px solid ${isPassed ? 'rgba(34, 197, 94, 0.2)' : isFailed ? 'rgba(248, 113, 113, 0.2)' : 'var(--border)'}`,
+                }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-xs font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>
+                    {testCase.name}
+                  </div>
+                  <span
+                    className="shrink-0 inline-flex items-center gap-1 rounded px-2 py-0.5 text-[9px] font-semibold tracking-widest"
+                    style={{ color: accent, background: badgeBackground }}
+                  >
+                    {isPassed ? <CheckCircle2 size={10} /> : isFailed ? <XCircle size={10} /> : <AlertTriangle size={10} />}
+                    {testCase.status}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          </div>
+          {visibleTestCases.length === 0 && (
+            <div className="text-[11px] p-2 rounded mt-2" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+              No tests match this filter.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="text-[11px] p-2 rounded" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+          Detailed per-test results were not included in the report.
+        </div>
+      )}
+
+      {parsed.issuesFound && (
+        <div className="mt-3">
+          <div className="text-[10px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
+            Issues Found
+          </div>
+          <div className="p-2 rounded" style={{ background: 'var(--bg-tertiary)' }}>
+            {parsed.issueItems.length > 0 ? (
+              <ul className="space-y-1 pl-4 list-disc text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                {parsed.issueItems.map((issue, index) => (
+                  <li key={`${issue}-${index}`}>{issue}</li>
+                ))}
+              </ul>
+            ) : (
+              <MarkdownRenderer content={parsed.issuesFound} />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TestReportSection({ report }: { report: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-[10px] font-semibold tracking-widest uppercase mb-2 cursor-pointer"
-        style={{ color: 'var(--text-muted)' }}
+        className="w-full flex items-center justify-between gap-2 text-[10px] font-semibold tracking-widest uppercase mb-2 px-3 py-2 rounded border cursor-pointer transition-colors"
+        style={{ color: 'var(--text-primary)', borderColor: 'var(--border)', background: 'var(--bg-tertiary)' }}
       >
-        {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        Test Report
+        <span className="flex items-center gap-2">
+          <FileText size={11} />
+          Raw Test Report
+        </span>
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
       </button>
       {expanded && (
         <div className="p-2 rounded overflow-auto max-h-[400px]" style={{ background: 'var(--bg-tertiary)' }}>
@@ -52,7 +453,8 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
   const [implementError, setImplementError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
-  const { STATUS_COLORS, getPriorityColor, getArtifactCategories, getArtifactCategoryLabel } = useWorkflow();
+  const { STATUS_COLORS, getPriorityColor, getArtifactCategories } = useWorkflow();
+  const parsedTestReport = task.testReport ? parseTestReport(task.testReport) : null;
 
   const CATEGORY_ORDER = getArtifactCategories().map(c => c.id);
   const CATEGORY_LABELS: Record<string, string> = {};
@@ -355,7 +757,10 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
 
           {/* Test Report (collapsible) */}
           {task.testReport && (
-            <TestReportSection report={task.testReport} />
+            <>
+              <ParsedTestResultsSection report={task.testReport} />
+              <TestReportSection report={parsedTestReport?.normalizedReport || task.testReport} />
+            </>
           )}
 
           {/* Description */}

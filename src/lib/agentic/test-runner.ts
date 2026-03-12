@@ -1,11 +1,12 @@
 import { spawn } from 'child_process';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync } from 'fs';
+import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { getAgenticFSClient } from '@/lib/agentic-fs-client';
 import { eventBus } from './events/emitter';
 import { createEvent } from './events/types';
 import { log } from './logger';
+import { resolveModelForTier } from './model-resolver';
 import type { Task, TaskArtifact } from '@/types/task';
 
 export interface TestResult {
@@ -66,7 +67,7 @@ export async function runTests(task: Task, testEnvironmentUrl: string): Promise<
     // 2. Build the test prompt
     const prompt = buildTestPrompt(task, artifactContents, testEnvironmentUrl);
 
-    log.info(TAG, `Invoking Claude Code CLI with $${MAX_BUDGET_USD} budget`, {
+    log.info(TAG, `Invoking test CLI with $${MAX_BUDGET_USD} budget`, {
       taskId: task.id,
       artifactCount: artifactContents.length,
       testEnvironmentUrl,
@@ -155,6 +156,57 @@ interface CLIResult {
   exitCode: number | null;
 }
 
+type AgentCli = 'claude' | 'codex';
+type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+
+function resolveAgentCli(): AgentCli {
+  const configured = process.env.AGENT_CLI;
+  if (configured === 'claude' || configured === 'codex') return configured;
+  return process.env.MODEL_ADAPTER === 'openai' ? 'codex' : 'claude';
+}
+
+function resolveCodexSandboxMode(): CodexSandboxMode {
+  const configured = process.env.CODEX_SANDBOX_MODE;
+  if (
+    configured === 'read-only' ||
+    configured === 'workspace-write' ||
+    configured === 'danger-full-access'
+  ) {
+    return configured;
+  }
+  return 'workspace-write';
+}
+
+function resolveCodexCommand(): string | null {
+  const home = process.env.HOME || '';
+  const nvmNodeBins = home
+    ? (() => {
+        const base = join(home, '.nvm', 'versions', 'node');
+        if (!existsSync(base)) return [] as string[];
+        try {
+          return readdirSync(base).map((ver) => join(base, ver, 'bin', 'codex'));
+        } catch {
+          return [] as string[];
+        }
+      })()
+    : [];
+  const candidates = [
+    process.env.AGENT_CLI_PATH,
+    process.env.CODEX_BIN,
+    join(dirname(process.execPath), 'codex'),
+    process.version ? join(home, '.nvm', 'versions', 'node', process.version, 'bin', 'codex') : undefined,
+    ...nvmNodeBins,
+    home ? join(home, '.bun', 'bin', 'codex') : undefined,
+    '/opt/homebrew/bin/codex',
+    '/usr/local/bin/codex',
+  ].filter((v): v is string => !!v && v.trim().length > 0);
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 /**
  * Spawn Claude Code CLI with Chrome MCP browser automation tools.
  * No git auth needed — tests only use the browser, not the filesystem.
@@ -164,9 +216,28 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
     mkdirSync(LOG_DIR, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const logFile = join(LOG_DIR, `test-${taskId}-${timestamp}.jsonl`);
+    const lastMessageFile = join(LOG_DIR, `test-${taskId}-${timestamp}.last-message.txt`);
     const logStream = createWriteStream(logFile, { flags: 'a' });
 
     log.info(TAG, `Audit log: ${logFile}`);
+
+    let cli = resolveAgentCli();
+    let command = cli === 'codex' ? 'codex' : 'claude';
+    if (cli === 'codex') {
+      const codexPath = resolveCodexCommand();
+      if (codexPath) {
+        command = codexPath;
+      } else if (process.env.AGENT_CLI === 'codex') {
+        reject(new Error(
+          'AGENT_CLI=codex is set, but codex executable was not found. Set AGENT_CLI_PATH to the codex binary.'
+        ));
+        return;
+      } else {
+        log.warn(TAG, 'Codex CLI not found on server PATH; falling back to Claude CLI');
+        cli = 'claude';
+        command = 'claude';
+      }
+    }
 
     const allowedTools = [
       'mcp__chrome-control__open_url',
@@ -178,56 +249,100 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
       'mcp__chrome-control__get_page_content',
     ].join(',');
 
-    // Build MCP config for the chrome-control DXT server
-    const chromeControlServerPath = join(
-      homedir(),
-      'Library', 'Application Support', 'Claude', 'Claude Extensions',
-      'ant.dir.ant.anthropic.chrome-control', 'server', 'index.js',
-    );
-
-    if (!existsSync(chromeControlServerPath)) {
-      throw new Error(
-        `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
-        'Please ensure the "Control Chrome" extension is installed in Claude Desktop.'
+    let mcpConfig = '';
+    if (cli === 'claude') {
+      // Build MCP config for the chrome-control DXT server
+      const chromeControlServerPath = join(
+        homedir(),
+        'Library', 'Application Support', 'Claude', 'Claude Extensions',
+        'ant.dir.ant.anthropic.chrome-control', 'server', 'index.js',
       );
+
+      if (!existsSync(chromeControlServerPath)) {
+        // If Claude was not explicitly requested, prefer falling back to Codex over hard-failing.
+        if (process.env.AGENT_CLI !== 'claude') {
+          const codexPath = resolveCodexCommand();
+          if (codexPath) {
+            log.warn(
+              TAG,
+              `Claude chrome-control extension not found at ${chromeControlServerPath}; falling back to Codex CLI.`,
+            );
+            cli = 'codex';
+            command = codexPath;
+          } else {
+            throw new Error(
+              `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
+              'Install the "Control Chrome" extension in Claude Desktop, or set AGENT_CLI=codex with a valid codex binary.'
+            );
+          }
+        } else {
+          throw new Error(
+            `Chrome Control MCP server not found at: ${chromeControlServerPath}. ` +
+            'Please ensure the "Control Chrome" extension is installed in Claude Desktop.'
+          );
+        }
+      }
+
+      if (cli === 'claude') {
+        mcpConfig = JSON.stringify({
+          mcpServers: {
+            'chrome-control': {
+              command: 'node',
+              args: [chromeControlServerPath],
+            },
+          },
+        });
+      }
     }
 
-    const mcpConfig = JSON.stringify({
-      mcpServers: {
-        'chrome-control': {
-          command: 'node',
-          args: [chromeControlServerPath],
-        },
-      },
+    const tier = (process.env.CLAUDE_CODE_MODEL_TIER as 'fast' | 'balanced' | 'advanced' | undefined) || 'balanced';
+    const resolvedModel = resolveModelForTier(tier);
+    const codexSandbox = resolveCodexSandboxMode();
+    const args = cli === 'codex'
+      ? [
+          'exec',
+          '--json',
+          '--model', resolvedModel.model,
+          '--sandbox', codexSandbox,
+          '--output-last-message', lastMessageFile,
+          '-',
+        ]
+      : [
+          '--print',
+          '--output-format', 'stream-json',
+          '--model', resolvedModel.model,
+          '--max-budget-usd', String(MAX_BUDGET_USD),
+          '--allowedTools', allowedTools,
+          '--mcp-config', mcpConfig,
+          '--no-session-persistence',
+          '--verbose',
+        ];
+    log.info(TAG, 'Resolved test CLI model', {
+      cli,
+      tier: resolvedModel.tier,
+      provider: resolvedModel.provider,
+      model: resolvedModel.model,
+      codexSandbox: cli === 'codex' ? codexSandbox : undefined,
     });
-
-    const args = [
-      '--print',
-      '--output-format', 'stream-json',
-      '--model', 'claude-sonnet-4-6',
-      '--max-budget-usd', String(MAX_BUDGET_USD),
-      '--allowedTools', allowedTools,
-      '--mcp-config', mcpConfig,
-      '--no-session-persistence',
-      '--verbose',
-    ];
 
     // Build child process env based on auth mode
     const isLocal = process.env.CLAUDE_CAUDE_LOCAL === 'true';
     const childEnv = { ...process.env };
     // Always strip CLAUDECODE to avoid nested-session detection
     delete childEnv.CLAUDECODE;
-    if (isLocal) {
+    if (cli === 'claude' && isLocal) {
       delete childEnv.ANTHROPIC_API_KEY;
       delete childEnv.ANTHROPIC_BASE_URL;
       log.info(TAG, 'Local mode: using OAuth (ANTHROPIC_API_KEY stripped from child env)');
-    } else {
+    } else if (cli === 'claude') {
       log.info(TAG, 'Server mode: using ANTHROPIC_API_KEY for Claude Code CLI');
+    } else {
+      log.info(TAG, 'Using Codex CLI auth from its own environment/config');
     }
 
-    log.debug(TAG, `Running: claude ${args.join(' ')} (cwd: ${process.cwd()}, auth: ${isLocal ? 'oauth' : 'api-key'})`);
+    log.debug(TAG, `Running: ${command} ${args.join(' ')} (cwd: ${process.cwd()}, auth: ${isLocal ? 'oauth' : 'api-key'})`);
 
-    const child = spawn('claude', args, {
+    const child = spawn(command, args, {
       cwd: process.cwd(),
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -274,6 +389,9 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
           if (event.type === 'result' && event.result) {
             allText += event.result + '\n';
           }
+          if (cli === 'codex') {
+            allText += line + '\n';
+          }
         } catch {
           log.debug(TAG, `[raw] ${line.slice(0, 200)}`);
           allText += line + '\n';
@@ -293,13 +411,23 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
         logStream.write(lineBuffer + '\n');
         allText += lineBuffer + '\n';
       }
+      if (cli === 'codex') {
+        try {
+          const lastMessage = readFileSync(lastMessageFile, 'utf8');
+          if (lastMessage.trim()) {
+            allText += `\n${lastMessage}\n`;
+          }
+        } catch {
+          // Best-effort capture only
+        }
+      }
       logStream.end();
 
-      log.info(TAG, `Claude Code exited with code ${code}`, { logFile });
+      log.info(TAG, `${cli} CLI exited with code ${code}`, { logFile });
 
       if (code !== 0 && !allText) {
         reject(new Error(
-          `Claude Code CLI exited with code ${code}${stderrText ? `\nstderr: ${stderrText.slice(0, 500)}` : ''}`
+          `${cli} CLI exited with code ${code}${stderrText ? `\nstderr: ${stderrText.slice(0, 500)}` : ''}`
         ));
         return;
       }
@@ -310,7 +438,7 @@ function spawnClaudeCode(prompt: string, taskId: string): Promise<CLIResult> {
     child.on('error', (err) => {
       clearTimeout(timer);
       logStream.end();
-      reject(new Error(`Failed to spawn Claude Code CLI: ${err.message}`));
+      reject(new Error(`Failed to spawn ${cli} CLI: ${err.message}`));
     });
   });
 }
@@ -323,6 +451,110 @@ function processStreamEvent(event: Record<string, unknown>, taskId: string): voi
   const type = event.type as string;
 
   switch (type) {
+    case 'thread.started':
+      log.info(TAG, 'Codex thread started');
+      break;
+
+    case 'turn.started':
+      log.debug(TAG, '[turn.started]');
+      break;
+
+    case 'item.started':
+    case 'item.completed': {
+      const item = event.item as Record<string, unknown> | undefined;
+      const itemType = item?.type as string | undefined;
+
+      if (itemType === 'agent_message' && type === 'item.completed') {
+        const text = String(item?.text || '').trim();
+        if (!text) break;
+
+        log.info(TAG, `[agent_message] ${text.slice(0, 300)}`);
+        eventBus.emit(createEvent(
+          'agent:thinking',
+          `Test runner: ${text.slice(0, 150)}`,
+          { taskId, text: text.slice(0, 500) },
+          TAG,
+          taskId,
+        ));
+        break;
+      }
+
+      if (itemType === 'command_execution') {
+        const command = String(item?.command || '').trim();
+        const status = String(item?.status || (type === 'item.started' ? 'in_progress' : 'completed'));
+        const exitCode = item?.exit_code;
+        const aggregatedOutput = String(item?.aggregated_output || '').trim();
+
+        log.info(TAG, `[command_execution:${status}] ${command.slice(0, 200)}`);
+        eventBus.emit(createEvent(
+          'agent:tool_call',
+          `Test runner ${status === 'completed' ? 'completed' : 'started'} command execution`,
+          {
+            taskId,
+            tool: 'command_execution',
+            input: command.slice(0, 500),
+            status,
+            exitCode: typeof exitCode === 'number' ? exitCode : undefined,
+            output: aggregatedOutput ? aggregatedOutput.slice(0, 500) : undefined,
+          },
+          TAG,
+          taskId,
+        ));
+        break;
+      }
+
+      if (itemType === 'mcp_tool_call') {
+        const toolName = String(item?.tool || '').trim();
+        const server = String(item?.server || '').trim();
+        const status = String(item?.status || (type === 'item.started' ? 'in_progress' : 'completed'));
+        const error = String(item?.error || '').trim();
+        const input = item?.arguments;
+        const result = item?.result as { content?: Array<{ text?: string }> } | undefined;
+        const output = result?.content
+          ?.map((entry) => String(entry?.text || '').trim())
+          .filter(Boolean)
+          .join('\n\n')
+          .slice(0, 500);
+
+        log.info(TAG, `[mcp_tool_call:${status}] ${server ? `${server}.` : ''}${toolName}`.slice(0, 200));
+        eventBus.emit(createEvent(
+          'agent:tool_call',
+          `Test runner ${status === 'completed' ? 'completed' : 'started'} ${server ? `${server} ` : ''}${toolName}`,
+          {
+            taskId,
+            tool: toolName || 'mcp_tool_call',
+            input,
+            status,
+            output: output || undefined,
+            error: error || undefined,
+            server: server || undefined,
+          },
+          TAG,
+          taskId,
+        ));
+        break;
+      }
+
+      log.debug(TAG, `[${type}] ${JSON.stringify(event).slice(0, 150)}`);
+      break;
+    }
+
+    case 'turn.completed': {
+      const usage = event.usage as Record<string, unknown> | undefined;
+      const inputTokens = usage?.input_tokens as number | undefined;
+      const outputTokens = usage?.output_tokens as number | undefined;
+
+      log.info(TAG, `[turn.completed] input=${inputTokens ?? '?'} output=${outputTokens ?? '?'}`);
+      eventBus.emit(createEvent(
+        'agent:completed',
+        'Test runner completed a turn',
+        { taskId, inputTokens, outputTokens },
+        TAG,
+        taskId,
+      ));
+      break;
+    }
+
     case 'system': {
       const subtype = event.subtype as string;
       if (subtype === 'init') {
@@ -449,73 +681,27 @@ function buildTestPrompt(
 You are a QA tester executing the test cases defined above against a live web application using Chrome browser automation via MCP tools. Follow these instructions precisely:
 
 ### Available Tools
-You have the following Chrome control tools (AppleScript-based):
+Use whichever browser MCP tool namespace is actually available in this session:
 
-- \`mcp__chrome-control__open_url\` — Navigate to a URL in Chrome (params: \`url\`, \`new_tab\`)
-- \`mcp__chrome-control__get_current_tab\` — Get current tab info (URL, title, id)
-- \`mcp__chrome-control__list_tabs\` — List all open tabs
-- \`mcp__chrome-control__switch_to_tab\` — Switch to a specific tab by ID (param: \`tab_id\`)
-- \`mcp__chrome-control__reload_tab\` — Reload a tab (param: \`tab_id\`)
-- \`mcp__chrome-control__execute_javascript\` — Execute JavaScript in a tab (params: \`code\`, \`tab_id\`)
-- \`mcp__chrome-control__get_page_content\` — Get text content of a page (param: \`tab_id\`)
+- **Preferred for Codex:** \`mcp__chrome-devtools__*\` tools (e.g. \`new_page\`, \`navigate_page\`, \`take_snapshot\`, \`click\`, \`fill\`, \`evaluate_script\`, \`resize_page\`, \`wait_for\`, \`list_console_messages\`)
+- **Used with Claude + chrome-control extension:** \`mcp__chrome-control__*\` tools (e.g. \`open_url\`, \`get_page_content\`, \`execute_javascript\`)
+
+If both are available, prefer \`mcp__chrome-devtools__*\`.
 
 ### Setup
-1. First, call \`mcp__chrome-control__open_url\` to navigate to the test environment URL: ${testEnvironmentUrl}
-2. Wait a moment for the page to load, then verify with \`mcp__chrome-control__get_page_content\`.
+1. Open the test environment URL: ${testEnvironmentUrl}
+2. Confirm the app has loaded by reading page content or snapshot output.
 
 ### Test Execution Patterns
 
-**Navigate to a page:**
-\`\`\`
-mcp__chrome-control__open_url({ url: "${testEnvironmentUrl}/some-path", new_tab: false })
-\`\`\`
+Use equivalent actions in whichever tool family is available:
 
-**Read page text content:**
-\`\`\`
-mcp__chrome-control__get_page_content({})
-\`\`\`
-
-**Check if an element exists or is visible:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "!!document.querySelector('.my-element')" })
-\`\`\`
-
-**Get element text:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelector('.my-element')?.textContent" })
-\`\`\`
-
-**Click a button or link:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelector('button.submit')?.click()" })
-\`\`\`
-
-**Fill a form input:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "const el = document.querySelector('input[name=email]'); if(el) { el.value = 'test@test.com'; el.dispatchEvent(new Event('input', {bubbles:true})); }" })
-\`\`\`
-
-**Check form validation:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelector('.error-message')?.textContent || 'no error'" })
-\`\`\`
-
-**Get number of items in a list:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "document.querySelectorAll('.list-item').length" })
-\`\`\`
-
-**Check for console errors (by injecting a listener):**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "window.__testErrors = window.__testErrors || []; window.addEventListener('error', e => window.__testErrors.push(e.message)); 'listener installed'" })
-// Later, check collected errors:
-mcp__chrome-control__execute_javascript({ code: "JSON.stringify(window.__testErrors || [])" })
-\`\`\`
-
-**Wait for dynamic content:**
-\`\`\`
-mcp__chrome-control__execute_javascript({ code: "new Promise(resolve => setTimeout(() => resolve(document.querySelector('.loaded')?.textContent || 'not loaded'), 2000))" })
-\`\`\`
+- Navigate: \`new_page({ url })\` or \`navigate_page({ type: "url", url })\`, or \`open_url({ url, new_tab: false })\`
+- Inspect page: \`take_snapshot({})\` / \`evaluate_script(...)\` or \`get_page_content({})\` / \`execute_javascript(...)\`
+- Interact: \`click\` / \`fill\` / \`press_key\` (or evaluation-based interactions in chrome-control)
+- Resize for responsive checks: \`resize_page({ width, height })\`
+- Wait for async UI: \`wait_for({ text: [...] })\` when text is appropriate, or use a short in-page delay via \`evaluate_script\` / \`execute_javascript\`
+- Check errors: inspect browser console/log output tools if available, or use JavaScript-based error collection
 
 ### CRITICAL SAFETY RULES
 - You are testing a LIVE application with REAL data. NEVER click buttons that change task status (e.g., "Mark Done", "Request Changes", "Move to…", "Delete", "Archive"). These are destructive actions that modify real data.
@@ -526,10 +712,10 @@ mcp__chrome-control__execute_javascript({ code: "new Promise(resolve => setTimeo
 ### Test Execution
 For each test case in the test plan above:
 
-1. **Navigate** to the relevant page using \`open_url\`.
-2. **Read the page** using \`get_page_content\` or \`execute_javascript\` to verify page structure and content.
-3. **Interact** with the page using \`execute_javascript\` — click UI elements to open panels, expand sections, fill search fields, etc. But NEVER click destructive action buttons (status changes, delete, submit).
-4. **Verify** expected outcomes by reading DOM state with \`execute_javascript\`.
+1. **Navigate** to the relevant page using browser MCP navigation tools.
+2. **Read the page** using \`take_snapshot\`, \`evaluate_script\`, \`get_page_content\`, or \`execute_javascript\` to verify page structure and content.
+3. **Interact** with the page using browser MCP interaction tools — click UI elements to open panels, expand sections, fill search fields, etc. But NEVER click destructive action buttons (status changes, delete, submit).
+4. **Verify** expected outcomes by reading DOM state with \`evaluate_script\` or \`execute_javascript\`.
 5. **Check for errors** using injected error listeners.
 6. Continue to the next test case, regardless of pass/fail.
 
@@ -568,7 +754,7 @@ Important:
 - If a test fails, continue executing remaining tests (do not stop on first failure).
 - Be precise about what passed and what failed — the report must be accurate.
 - The test report is the LAST thing you output.
-- Use ONLY the mcp__chrome-control__* tools listed above. Do NOT use Bash, Read, or any other tools.
+- Use ONLY browser MCP tools (\`mcp__chrome-devtools__*\` or \`mcp__chrome-control__*\`). Do NOT use Bash, Read, or any non-browser tools.
 `);
 
   return sections.join('\n');
@@ -578,19 +764,29 @@ Important:
 // Report extraction
 // ---------------------------------------------------------------------------
 
+function extractLastTestReportBlock(output: string): string | null {
+  const matches = [...output.matchAll(/^# Test Execution Report\b/gm)];
+  if (matches.length === 0) return null;
+
+  const lastIndex = matches[matches.length - 1].index;
+  if (lastIndex === undefined) return null;
+
+  return output.slice(lastIndex).trim();
+}
+
+function extractCount(report: string, label: string): number {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = report.match(new RegExp(`(?:\\*\\*)?${escaped}:(?:\\*\\*)?\\s*(\\d+)`));
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 function extractTestReport(output: string): { report: string; passedCount: number; failedCount: number } | null {
-  const reportMatch = output.match(/# Test Execution Report[\s\S]*/);
-  if (!reportMatch) return null;
+  const report = extractLastTestReportBlock(output);
+  if (!report) return null;
 
-  const report = reportMatch[0].trim();
-
-  const passedMatch = report.match(/\*\*Passed:\*\*\s*(\d+)/);
-  const failedMatch = report.match(/\*\*Failed:\*\*\s*(\d+)/);
-  const blockedMatch = report.match(/\*\*Blocked:\*\*\s*(\d+)/);
-
-  const passedCount = passedMatch ? parseInt(passedMatch[1], 10) : 0;
-  const failedCount = failedMatch ? parseInt(failedMatch[1], 10) : 0;
-  const blockedCount = blockedMatch ? parseInt(blockedMatch[1], 10) : 0;
+  const passedCount = extractCount(report, 'Passed');
+  const failedCount = extractCount(report, 'Failed');
+  const blockedCount = extractCount(report, 'Blocked');
 
   // If all tests are blocked (0 passed, 0 failed, >0 blocked), treat as failure
   if (passedCount === 0 && failedCount === 0 && blockedCount > 0) {

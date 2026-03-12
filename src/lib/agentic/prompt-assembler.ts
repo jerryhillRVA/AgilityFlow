@@ -33,6 +33,7 @@ After all artifacts, write a brief summary of what you produced.`;
 
 export class PromptAssembler {
   private modelConfig: Record<string, Record<string, string>> | null = null;
+  private defaultProvider = 'anthropic';
 
   constructor(private registry: CapabilityRegistry) {}
 
@@ -41,15 +42,20 @@ export class PromptAssembler {
     if (!this.modelConfig) {
       try {
         const configPath = path.join(process.cwd(), 'config', 'models.yaml');
-        const raw = parseYaml(fs.readFileSync(configPath, 'utf8'));
-        this.modelConfig = raw.tiers;
+        const raw = parseYaml(fs.readFileSync(configPath, 'utf8')) as {
+          default_provider?: string;
+          tiers?: Record<string, Record<string, string>>;
+        };
+        this.modelConfig = raw.tiers || {};
+        this.defaultProvider = raw.default_provider || 'anthropic';
       } catch {
         // Fallback: hardcoded defaults if config file is missing
         this.modelConfig = {
-          fast: { anthropic: 'claude-haiku-4-5-20251001' },
-          balanced: { anthropic: 'claude-sonnet-4-5-20250929' },
-          advanced: { anthropic: 'claude-opus-4-6' },
+          fast: { anthropic: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini' },
+          balanced: { anthropic: 'claude-sonnet-4-5-20250929', openai: 'gpt-4o' },
+          advanced: { anthropic: 'claude-opus-4-6', openai: 'o3' },
         };
+        this.defaultProvider = 'anthropic';
       }
     }
     return this.modelConfig!;
@@ -57,15 +63,57 @@ export class PromptAssembler {
 
   /** Resolves an agent's tier (or explicit model override) to a concrete model ID */
   private resolveModel(agent: AgentDefinition): string | undefined {
-    if (agent.model) {
-      // Strip provider prefix: "anthropic/claude-opus-4-6" → "claude-opus-4-6"
-      const resolved = agent.model.includes('/') ? agent.model.split('/').pop()! : agent.model;
-      log.debug('prompt-assembler', `resolveModel: explicit model for ${agent.id}`, { model: resolved });
-      return resolved;
-    }
     const tiers = this.getModelConfig();
-    const resolved = tiers[agent.tier]?.['anthropic'];
-    log.debug('prompt-assembler', `resolveModel: tier "${agent.tier}" → ${resolved}`, { agentId: agent.id, tier: agent.tier, model: resolved });
+    const adapterProvider = process.env.MODEL_ADAPTER && process.env.MODEL_ADAPTER !== 'mock'
+      ? process.env.MODEL_ADAPTER
+      : this.defaultProvider;
+
+    if (agent.model) {
+      if (agent.model.includes('/')) {
+        const [provider, modelId] = agent.model.split('/', 2);
+
+        if (provider === adapterProvider) {
+          log.debug('prompt-assembler', `resolveModel: explicit model for ${agent.id}`, {
+            provider,
+            model: modelId,
+          });
+          return modelId;
+        }
+
+        const tierModel = tiers[agent.tier]?.[adapterProvider];
+        if (tierModel) {
+          log.warn('prompt-assembler', `resolveModel: provider mismatch for ${agent.id}, using tier model for active provider`, {
+            explicitProvider: provider,
+            activeProvider: adapterProvider,
+            tier: agent.tier,
+            model: tierModel,
+          });
+          return tierModel;
+        }
+
+        log.warn('prompt-assembler', `resolveModel: no tier model for active provider, using explicit model for ${agent.id}`, {
+          explicitProvider: provider,
+          activeProvider: adapterProvider,
+          model: modelId,
+        });
+        return modelId;
+      }
+
+      log.debug('prompt-assembler', `resolveModel: explicit unscoped model for ${agent.id}`, {
+        provider: adapterProvider,
+        model: agent.model,
+      });
+      return agent.model;
+    }
+
+    const resolved = tiers[agent.tier]?.[adapterProvider] || tiers[agent.tier]?.[this.defaultProvider];
+    log.debug('prompt-assembler', `resolveModel: tier "${agent.tier}" → ${resolved}`, {
+      agentId: agent.id,
+      tier: agent.tier,
+      provider: adapterProvider,
+      defaultProvider: this.defaultProvider,
+      model: resolved,
+    });
     return resolved;
   }
 

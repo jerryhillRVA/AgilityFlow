@@ -370,7 +370,7 @@ select:focus {
   top: 0%;
   background: linear-gradient(90deg, transparent 0%, var(--grid-scan-glow) 25%, var(--grid-scan-core) 50%, var(--grid-scan-glow) 75%, transparent 100%);
   box-shadow: 0 0 30px 10px var(--grid-scan-glow), 0 0 80px 25px rgba(78, 205, 196, 0.1);
-  animation: grid-scan 5s ease-in-out infinite;
+  animation: none;
   z-index: 1;
 }
 
