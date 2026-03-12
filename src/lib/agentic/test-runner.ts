@@ -764,19 +764,29 @@ Important:
 // Report extraction
 // ---------------------------------------------------------------------------
 
+function extractLastTestReportBlock(output: string): string | null {
+  const matches = [...output.matchAll(/^# Test Execution Report\b/gm)];
+  if (matches.length === 0) return null;
+
+  const lastIndex = matches[matches.length - 1].index;
+  if (lastIndex === undefined) return null;
+
+  return output.slice(lastIndex).trim();
+}
+
+function extractCount(report: string, label: string): number {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = report.match(new RegExp(`(?:\\*\\*)?${escaped}:(?:\\*\\*)?\\s*(\\d+)`));
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 function extractTestReport(output: string): { report: string; passedCount: number; failedCount: number } | null {
-  const reportMatch = output.match(/# Test Execution Report[\s\S]*/);
-  if (!reportMatch) return null;
+  const report = extractLastTestReportBlock(output);
+  if (!report) return null;
 
-  const report = reportMatch[0].trim();
-
-  const passedMatch = report.match(/\*\*Passed:\*\*\s*(\d+)/);
-  const failedMatch = report.match(/\*\*Failed:\*\*\s*(\d+)/);
-  const blockedMatch = report.match(/\*\*Blocked:\*\*\s*(\d+)/);
-
-  const passedCount = passedMatch ? parseInt(passedMatch[1], 10) : 0;
-  const failedCount = failedMatch ? parseInt(failedMatch[1], 10) : 0;
-  const blockedCount = blockedMatch ? parseInt(blockedMatch[1], 10) : 0;
+  const passedCount = extractCount(report, 'Passed');
+  const failedCount = extractCount(report, 'Failed');
+  const blockedCount = extractCount(report, 'Blocked');
 
   // If all tests are blocked (0 passed, 0 failed, >0 blocked), treat as failure
   if (passedCount === 0 && failedCount === 0 && blockedCount > 0) {
