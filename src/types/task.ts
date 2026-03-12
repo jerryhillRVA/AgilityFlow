@@ -67,6 +67,20 @@ export interface Task {
   testError?: string;
   /** Test result summary (markdown) — captured from Claude Code output */
   testReport?: string;
+  /** Number of test cases that passed during the most recent run */
+  testPassedCount?: number;
+  /** Number of test cases that failed during the most recent run */
+  testFailedCount?: number;
+  /** Timestamp when the most recent test run was queued */
+  testQueuedAt?: string;
+  /** Timestamp when the most recent test run started */
+  testStartedAt?: string;
+  /** Timestamp when the most recent test run completed */
+  testCompletedAt?: string;
+  /** Timestamp for the latest test status update */
+  testUpdatedAt?: string;
+  /** Local execution log path for the most recent test run */
+  testLogFile?: string;
   /** Whether the orchestrator has finished decomposing this task (plan mode only) */
   decompositionComplete?: boolean;
 }

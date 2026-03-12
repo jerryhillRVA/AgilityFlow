@@ -7,6 +7,7 @@ import { StatusTransitionButtons } from './StatusTransitionButtons';
 import { ArtifactViewerModal } from './ArtifactViewerModal';
 import { MarkdownRenderer } from '@/components/ui/MarkdownRenderer';
 import { useWorkflow } from '@/components/providers/WorkflowProvider';
+import { ReviewChecksSection } from './ReviewChecksSection';
 
 interface TaskDetailPanelProps {
   task: Task;
@@ -52,7 +53,7 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
   const [implementError, setImplementError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
-  const { STATUS_COLORS, getPriorityColor, getArtifactCategories, getArtifactCategoryLabel } = useWorkflow();
+  const { STATUS_COLORS, getPriorityColor, getArtifactCategories } = useWorkflow();
 
   const CATEGORY_ORDER = getArtifactCategories().map(c => c.id);
   const CATEGORY_LABELS: Record<string, string> = {};
@@ -266,6 +267,13 @@ export function TaskDetailPanel({ task, allTasks, onClose, onStatusChange, onSel
                 </div>
               )}
             </div>
+          )}
+
+          {!task.parentTaskId && (
+            <ReviewChecksSection
+              taskId={task.id}
+              taskStatus={task.status}
+            />
           )}
 
           {/* Implementation Status */}

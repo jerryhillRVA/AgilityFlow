@@ -163,7 +163,6 @@ export class Orchestrator {
 
   private createTaskToolRouter(taskId: string): ToolRouter {
     const baseRouter = this.toolRouter;
-    const self = this;
 
     const proxy = Object.create(baseRouter) as ToolRouter;
     proxy.execute = async (toolName: string, input: Record<string, unknown>): Promise<string> => {
@@ -180,7 +179,7 @@ export class Orchestrator {
         try {
           const parsed = JSON.parse(result);
           if (parsed.file_id) {
-            self.addArtifact(taskId, {
+            this.addArtifact(taskId, {
               fileId: parsed.file_id,
               filename: (input.filename as string) || 'unknown',
               namespace: NS.ARTIFACTS,
@@ -779,6 +778,11 @@ export class Orchestrator {
       return;
     }
 
+    const queuedAt = new Date().toISOString();
+    task.testQueuedAt = queuedAt;
+    task.testUpdatedAt = queuedAt;
+    task.testCompletedAt = undefined;
+
     // Load test environment URL from settings
     const settingsService = getSettingsService();
     const settings = await settingsService.load();
@@ -787,13 +791,21 @@ export class Orchestrator {
     if (!testEnvironmentUrl) {
       task.testStatus = 'failed';
       task.testError = 'Test environment URL is not configured. Set it in Settings \u2192 Testing.';
+      task.testCompletedAt = new Date().toISOString();
+      task.testUpdatedAt = task.testCompletedAt;
       this.persistTaskUpdate(task).catch(() => {});
       return;
     }
 
+    const startedAt = new Date().toISOString();
     task.testStatus = 'testing';
     task.testError = undefined;
     task.testReport = undefined;
+    task.testPassedCount = undefined;
+    task.testFailedCount = undefined;
+    task.testStartedAt = startedAt;
+    task.testUpdatedAt = startedAt;
+    task.testLogFile = undefined;
     this.persistTaskUpdate(task).catch(() => {});
 
     log.info('orchestrator', `Test execution started for "${task.title}"`, { taskId });
@@ -805,11 +817,17 @@ export class Orchestrator {
         task.testStatus = 'passed';
         task.testReport = result.report;
         task.testError = undefined;
+        task.testPassedCount = result.passedCount;
+        task.testFailedCount = result.failedCount;
+        task.testLogFile = result.logFile;
         log.info('orchestrator', `Tests passed for "${task.title}" (${result.passedCount}/${(result.passedCount || 0) + (result.failedCount || 0)})`);
       } else {
         task.testStatus = 'failed';
         task.testReport = result.report;
         task.testError = result.error || 'Tests failed';
+        task.testPassedCount = result.passedCount;
+        task.testFailedCount = result.failedCount;
+        task.testLogFile = result.logFile;
         log.error('orchestrator', `Tests failed for "${task.title}": ${result.error}`);
       }
     } catch (err) {
@@ -826,6 +844,9 @@ export class Orchestrator {
       ));
     }
 
+    const completedAt = new Date().toISOString();
+    task.testCompletedAt = completedAt;
+    task.testUpdatedAt = completedAt;
     this.persistTaskUpdate(task).catch(() => {});
   }
 }
