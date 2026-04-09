@@ -6,6 +6,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Read a file from the project filesystem by its file ID',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         file_id: { type: 'string', description: 'The file ID to read' },
       },
@@ -17,6 +18,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Write or upload a file to the project filesystem. You must specify a category for every artifact.',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         filename: { type: 'string', description: 'Name for the file' },
         content: { type: 'string', description: 'File content' },
@@ -33,6 +35,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Search files in the project by content or meaning using hybrid search',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         query: { type: 'string', description: 'Search query' },
         namespace: { type: 'string', description: 'Namespace to search within' },
@@ -46,6 +49,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'List directory contents in the project filesystem',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         path: { type: 'string', description: 'Directory path to list' },
         namespace: { type: 'string', description: 'Namespace' },
@@ -58,6 +62,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Ask a question about project files using RAG. Returns a synthesized answer with cited source files. More efficient than searching then reading files separately — use this as your primary context-gathering tool.',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         query: { type: 'string', description: 'The question to ask about project files' },
         namespace: { type: 'string', description: 'Limit search to a namespace (e.g. artifacts, tasks)' },
@@ -72,6 +77,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Read multiple files at once by their file IDs. More efficient than reading files one at a time when you have several file IDs from a search.',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         file_ids: { type: 'array', items: { type: 'string' }, description: 'Array of file IDs to read' },
       },
@@ -83,6 +89,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Delegate a subtask to a specialist agent for execution',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         agent_id: { type: 'string', description: 'ID of the agent to delegate to' },
         task_title: { type: 'string', description: 'Title of the subtask' },
@@ -97,6 +104,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Create a subtask under the current task. In plan mode, use assigned_agent to indicate which specialist should handle it.',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         title: { type: 'string', description: 'Subtask title' },
         description: { type: 'string', description: 'Subtask description' },
@@ -113,6 +121,7 @@ export const TOOL_SCHEMAS: Record<string, ToolSchema> = {
     description: 'Update the status of a task',
     input_schema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         task_id: { type: 'string', description: 'Task ID to update' },
         status: { type: 'string', enum: ['backlog', 'todo', 'in-progress', 'review', 'done', 'blocked', 'pending'] },
